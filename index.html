@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>All Coding Courses</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- ══ FIREBASE SDK ══ -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getFirestore, collection, addDoc, getDocs, deleteDoc,
+      doc, orderBy, query, updateDoc, setDoc, getDoc, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import {
+      getStorage, ref, uploadBytes, getDownloadURL
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+    import {
+      getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyChDChk_cN_CwuzJJkciYitLeHpZIAZYHU",
+      authDomain: "allcodingcourses.firebaseapp.com",
+      projectId: "allcodingcourses",
+      storageBucket: "allcodingcourses.firebasestorage.app",
+      messagingSenderId: "714463284591",
+      appId: "1:714463284591:web:17e34935d834c42ab5ac9a",
+      measurementId: "G-ZGMZNX52GV"
+    };
+
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
+    const stor = getStorage(app);
+    const auth = getAuth(app);
+
+    // ── DEFAULT COURSES ──
+    const DEFAULT_COURSES = [
+      { title:'Prime AI ML 1.0',          image:'https://lwfiles.mycourse.app/62a6cd5e1e9e2fbf212d608d-public/thumbnails/d44b63a742b6196a7cff5f13c0be1ad7.jpg', link:'https://vplink.in/CG7cSF', category:'AI / ML',    creator:'Apna College', isDefault:true, defaultId:'default_1' },
+      { title:'Prime AI ML 2.0',          image:'https://lwfiles.mycourse.app/62a6cd5e1e9e2fbf212d608d-public/thumbnails/c04d7ed34c64e0b30d5a48f58ba1a6cb.jpg', link:'https://vplink.in/16eCDz', category:'AI / ML',    creator:'Apna College', isDefault:true, defaultId:'default_2' },
+      { title:'Delta 9.0 — Web Dev',      image:'https://lwfiles.mycourse.app/62a6cd5e1e9e2fbf212d608d-public/thumbnails/e6e8e52f9e94a8de4c52b91c8b22caa8.jpg', link:'https://vplink.in/aNqFRK', category:'Development', creator:'Apna College', isDefault:true, defaultId:'default_3' },
+      { title:'Sigma 9.0 — DSA+Aptitude', image:'https://lwfiles.mycourse.app/62a6cd5e1e9e2fbf212d608d-public/thumbnails/b8f2c73b03e6d048fb61b44be1af3d6e.jpg', link:'https://vplink.in/oJ91',   category:'DSA',         creator:'Apna College', isDefault:true, defaultId:'default_4' },
+      { title:'Alpha Java DSA',            image:'https://lwfiles.mycourse.app/62a6cd5e1e9e2fbf212d608d-public/thumbnails/9e11e49a4d2efb5a1bdbc81e85c7fef6.jpg', link:'https://vplink.in/f1RaAB', category:'DSA',         creator:'Apna College', isDefault:true, defaultId:'default_5' },
+      { title:'Alpha Plus',                image:'https://lwfiles.mycourse.app/62a6cd5e1e9e2fbf212d608d-public/0f275b1c30123c908cc8491a86d9146a.png', link:'https://vplink.in/reQDb',  category:'DSA',         creator:'Apna College', isDefault:true, defaultId:'default_6' },
+    ];
+
+    let courses          = [];
+    let firebaseCourses  = [];
+    let upcomingCourses  = [];
+    let courseRequests   = [];
+    let activeFilter     = 'all';
+    let searchQuery      = '';
+    let siteSettings     = {};
+    let editingCourseId  = null;
+    let editingUpcomingId = null;
+    let currentAdminUser = null;
+
+    // ── AUTH STATE ──
+    onAuthStateChanged(auth, user => {
+      currentAdminUser = user;
+    });
+
+    // ── LOG ADMIN ACTIVITY ──
+    async function logActivity(action, details = '') {
+      try {
+        await addDoc(collection(db, 'adminLogs'), {
+          action,
+          details,
+          adminEmail: currentAdminUser ? currentAdminUser.email : 'unknown',
+          timestamp: Date.now(),
+          dateStr: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+        });
+      } catch(e) { console.warn('Log error:', e); }
+    }
+    window.logActivity = logActivity;
+
+    // ── LOAD EVERYTHING ──
+    async function loadAll() {
+      await Promise.all([loadCourses(), loadUpcoming(), loadSettings(), loadCourseRequests()]);
+    }
+
+    async function loadCourses() {
+      try {
+        const q    = query(collection(db, 'courses'), orderBy('createdAt', 'desc'));
+        const snap = await getDocs(q);
+        firebaseCourses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch(e) {
+        console.warn('Firebase courses error:', e);
+        firebaseCourses = [];
+      }
+      courses = [...firebaseCourses, ...DEFAULT_COURSES];
+      renderFilters();
+      renderCourses();
+      updateCourseCount();
+    }
+
+    async function loadUpcoming() {
+      try {
+        const q    = query(collection(db, 'upcoming'), orderBy('createdAt', 'desc'));
+        const snap = await getDocs(q);
+        upcomingCourses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch(e) { upcomingCourses = []; }
+      renderUpcoming();
+    }
+
+    async function loadSettings() {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'site'));
+        siteSettings = snap.exists() ? snap.data() : {};
+      } catch(e) { siteSettings = {}; }
+      applySettings();
+    }
+
+    async function loadCourseRequests() {
+      try {
+        const q    = query(collection(db, 'courseRequests'), orderBy('createdAt', 'desc'));
+        const snap = await getDocs(q);
+        courseRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch(e) { courseRequests = []; }
+    }
+    window.loadCourseRequests = loadCourseRequests;
+
+    // ── SUBMIT COURSE REQUEST ──
+    window.submitCourseRequest = async function() {
+      const name   = document.getElementById('reqName').value.trim();
+      const course = document.getElementById('reqCourse').value.trim();
+      const note   = document.getElementById('reqNote').value.trim();
+      if (!course) { showToast('Please enter a course name', true); return; }
+      const btn = document.getElementById('reqSubmitBtn');
+      btn.textContent = 'Sending…'; btn.disabled = true;
+      try {
+        await addDoc(collection(db, 'courseRequests'), {
+          studentName: name || 'Anonymous',
+          courseName: course,
+          note,
+          createdAt: Date.now(),
+          dateStr: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          status: 'pending'
+        });
+        showToast('Request sent! We\'ll try to add it 🙏');
+        document.getElementById('reqName').value = '';
+        document.getElementById('reqCourse').value = '';
+        document.getElementById('reqNote').value = '';
+      } catch(e) {
+        showToast('Error: ' + e.message, true);
+      } finally {
+        btn.textContent = '📩 Send Request'; btn.disabled = false;
+      }
+    };
+
+    function applySettings() {
+      const banner = document.getElementById('announcementBanner');
+      if (siteSettings.announcementEnabled && siteSettings.announcementText) {
+        banner.style.display = 'flex';
+        document.getElementById('announcementText').textContent = siteSettings.announcementText;
+      } else {
+        banner.style.display = 'none';
+      }
+      const tgNav     = document.getElementById('navTgLink');
+      const cantFind  = document.getElementById('cantFindLink');
+      const contactTg = document.getElementById('contactTgLink');
+      const popupBtn  = document.getElementById('popupTgBtn');
+      if (siteSettings.navTelegramUser)     { tgNav.dataset.tg = siteSettings.navTelegramUser; }
+      if (siteSettings.cantFindUser)        { cantFind.dataset.tg = siteSettings.cantFindUser; }
+      if (siteSettings.contactTelegramUser) { contactTg.dataset.tg = siteSettings.contactTelegramUser; }
+      if (siteSettings.popupTelegramUser)   { popupBtn.dataset.tg = siteSettings.popupTelegramUser; }
+      const upcomingSection = document.getElementById('upcomingSection');
+      if (upcomingSection) upcomingSection.style.display = siteSettings.showUpcoming === false ? 'none' : 'block';
+    }
+
+    async function saveSettings(updates) {
+      siteSettings = { ...siteSettings, ...updates };
+      try {
+        await setDoc(doc(db, 'settings', 'site'), siteSettings);
+        applySettings();
+        showToast('Settings saved ✓');
+        await logActivity('settings_updated', JSON.stringify(updates).substring(0,120));
+      } catch(e) {
+        showToast('Save error: ' + e.message, true);
+      }
+    }
+    window.saveSettings = saveSettings;
+
+    // ── COURSE COUNT (animated) ──
+    function updateCourseCount() {
+      const el = document.getElementById('courseCountNum');
+      if (!el) return;
+      const target = courses.length;
+      let current = 0;
+      const step = Math.ceil(target / 40);
+      const timer = setInterval(() => {
+        current = Math.min(current + step, target);
+        el.textContent = current;
+        if (current >= target) clearInterval(timer);
+      }, 30);
+      const badge = document.getElementById('courseCount');
+      if (badge) badge.textContent = target + ' Courses';
+    }
+
+    // ── SKELETON LOADING ──
+    function showSkeletons(count = 6) {
+      const grid = document.getElementById('courseGrid');
+      grid.innerHTML = Array(count).fill(0).map(() => `
+        <div class="skeleton-card">
+          <div class="skel skel-thumb"></div>
+          <div class="skel-body">
+            <div class="skel skel-cat"></div>
+            <div class="skel skel-title"></div>
+            <div class="skel skel-sub"></div>
+            <div class="skel skel-btn"></div>
+          </div>
+        </div>`).join('');
+    }
+    window.showSkeletons = showSkeletons;
+
+    // ── RENDER COURSES ──
+    window.renderCourses = function() {
+      const grid = document.getElementById('courseGrid');
+      let filtered = activeFilter === 'all' ? courses : courses.filter(c => c.category === activeFilter);
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(c =>
+          c.title.toLowerCase().includes(q) ||
+          (c.creator||'').toLowerCase().includes(q) ||
+          c.category.toLowerCase().includes(q)
+        );
+      }
+      if (!filtered.length) {
+        grid.innerHTML = '<div class="courses-empty">No courses found. Try a different search or filter.</div>';
+        return;
+      }
+      const now = Date.now();
+      const WEEK = 7 * 24 * 60 * 60 * 1000;
+      const newIds = firebaseCourses.slice(0, 3).map(c => c.id);
+
+      grid.innerHTML = filtered.map(c => {
+        const isNew = c.id && newIds.includes(c.id) && c.createdAt && (now - c.createdAt < WEEK);
+        const cardId = c.id || c.defaultId;
+        const shareText = encodeURIComponent(`🎓 Check out this free course: *${c.title}*\n📚 Category: ${c.category}\n🔗 ${c.link}\n\nFind more free courses at All Coding Courses!`);
+        return `
+        <div class="course-card" onclick="openPreview('${cardId}')">
+          ${isNew ? '<div class="new-badge">NEW</div>' : ''}
+          ${c.image
+            ? `<img class="course-thumb" src="${c.image}" alt="${c.title}" loading="lazy"
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"/>
+               <div class="course-thumb-placeholder" style="display:none">📚</div>`
+            : `<div class="course-thumb-placeholder">📚</div>`}
+          <div class="course-info">
+            <div class="course-category">${c.category}</div>
+            <div class="course-title">${c.title}</div>
+            <div class="course-creator">${c.creator || ''}</div>
+            <div class="card-actions">
+              <a href="${c.link}" target="_blank" class="course-btn" onclick="event.stopPropagation()">Join for Free →</a>
+              <a href="https://wa.me/?text=${shareText}" target="_blank" class="wa-share-btn" onclick="event.stopPropagation()" title="Share on WhatsApp">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </a>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+      // store courses map for preview
+      window._coursesMap = {};
+      courses.forEach(c => { window._coursesMap[c.id || c.defaultId] = c; });
+    };
+
+    // ── QUICK PREVIEW MODAL ──
+    window.openPreview = function(cardId) {
+      const c = window._coursesMap && window._coursesMap[cardId];
+      if (!c) return;
+      const shareText = encodeURIComponent(`🎓 Check out: *${c.title}*\n🔗 ${c.link}`);
+      document.getElementById('previewThumb').src   = c.image || '';
+      document.getElementById('previewThumb').style.display = c.image ? 'block' : 'none';
+      document.getElementById('previewThumbPh').style.display = c.image ? 'none' : 'grid';
+      document.getElementById('previewCat').textContent    = c.category;
+      document.getElementById('previewTitle').textContent  = c.title;
+      document.getElementById('previewCreator').textContent = c.creator || '';
+      document.getElementById('previewJoinBtn').href       = c.link;
+      document.getElementById('previewWaBtn').href         = `https://wa.me/?text=${shareText}`;
+      const modal = document.getElementById('previewModal');
+      modal.classList.add('show');
+      requestAnimationFrame(() => modal.querySelector('.preview-sheet').classList.add('up'));
+    };
+
+    window.closePreview = function() {
+      const modal = document.getElementById('previewModal');
+      modal.querySelector('.preview-sheet').classList.remove('up');
+      setTimeout(() => modal.classList.remove('show'), 320);
+    };
+
+    // ── FILTERS ──
+    window.renderFilters = function() {
+      const cats = ['all', ...new Set(courses.map(c => c.category))];
+      const bar  = document.getElementById('filterBar');
+      bar.innerHTML = cats.map(cat => {
+        const count = cat === 'all' ? courses.length : courses.filter(c => c.category === cat).length;
+        return `<button class="filter-btn ${cat === activeFilter ? 'active' : ''}"
+                  data-cat="${cat}" onclick="setFilter('${cat}')">
+          ${cat === 'all' ? 'All' : cat} <span class="filter-count">${count}</span>
+        </button>`;
+      }).join('');
+    };
+
+    window.setFilter = function(cat) {
+      activeFilter = cat;
+      renderFilters();
+      renderCourses();
+    };
+
+    window.doSearch = function(val) {
+      searchQuery = val;
+      renderCourses();
+    };
+
+    // ── UPCOMING ──
+    function renderUpcoming() {
+      const grid = document.getElementById('upcomingGrid');
+      if (!grid) return;
+      if (!upcomingCourses.length) {
+        grid.innerHTML = '<div class="courses-empty">No upcoming courses announced yet.</div>';
+        return;
+      }
+      grid.innerHTML = upcomingCourses.map(c => `
+        <div class="upcoming-card">
+          <div class="upcoming-soon">Coming Soon</div>
+          ${c.image ? `<img class="course-thumb" src="${c.image}" alt="${c.title}" loading="lazy"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"/>
+            <div class="course-thumb-placeholder" style="display:none">🔜</div>`
+            : `<div class="course-thumb-placeholder">🔜</div>`}
+          <div class="course-info">
+            <div class="course-category">${c.category || 'Upcoming'}</div>
+            <div class="course-title">${c.title}</div>
+            <div class="course-creator">${c.creator || ''}</div>
+            ${c.expectedDate ? `<div class="upcoming-date">📅 Expected: ${c.expectedDate}</div>` : ''}
+            <div class="upcoming-notify">Stay tuned on Telegram!</div>
+          </div>
+        </div>`).join('');
+    }
+
+    // ── PUBLISH COURSE ──
+    window.publishCourse = async function() {
+      const title = document.getElementById('cTitle').value.trim();
+      const link  = document.getElementById('cLink').value.trim();
+      if (!title || !link) { showToast('Title and link are required', true); return; }
+      const btn = document.querySelector('#tabAdd .submit-btn');
+      btn.textContent = 'Publishing…'; btn.disabled = true;
+      try {
+        let imageUrl = document.getElementById('cImage').value.trim();
+        const fileInput = document.getElementById('cImageFile');
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          const storRef = ref(stor, 'thumbnails/' + Date.now() + '_' + file.name);
+          const snap = await uploadBytes(storRef, file);
+          imageUrl = await getDownloadURL(snap.ref);
+        }
+        const data = { title, image: imageUrl, link, category: document.getElementById('cCat').value, creator: document.getElementById('cCreator').value.trim(), createdAt: Date.now() };
+        if (editingCourseId && !editingCourseId.startsWith('default_')) {
+          await updateDoc(doc(db, 'courses', editingCourseId), data);
+          await logActivity('course_updated', title);
+          showToast('Course updated ✓');
+          editingCourseId = null;
+          btn.textContent = '🚀 Publish Course';
+        } else {
+          await addDoc(collection(db, 'courses'), data);
+          await logActivity('course_added', title);
+          showToast('Course published! 🚀');
+        }
+        ['cTitle','cImage','cCreator'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('cLink').value = '';
+        if (fileInput) fileInput.value = '';
+        document.getElementById('imagePreview').style.display = 'none';
+        await loadCourses();
+        renderManageList();
+      } catch(e) {
+        showToast('Error: ' + e.message, true);
+      } finally {
+        btn.textContent = editingCourseId ? '💾 Save Changes' : '🚀 Publish Course';
+        btn.disabled = false;
+      }
+    };
+
+    // ── BULK IMPORT via Google Sheets ──
+    window.bulkImportFromSheet = async function() {
+      const sheetUrl = document.getElementById('sheetUrl').value.trim();
+      if (!sheetUrl) { showToast('Paste a Google Sheet URL', true); return; }
+      // Extract sheet ID
+      const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (!match) { showToast('Invalid Google Sheet URL', true); return; }
+      const sheetId = match[1];
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+      const btn = document.getElementById('bulkImportBtn');
+      btn.textContent = 'Importing…'; btn.disabled = true;
+      const statusEl = document.getElementById('bulkImportStatus');
+      statusEl.textContent = 'Fetching sheet data…';
+      try {
+        const resp = await fetch(csvUrl);
+        if (!resp.ok) throw new Error('Could not fetch sheet. Make sure it is shared publicly.');
+        const csvText = await resp.text();
+        const lines = csvText.trim().split('\n').map(l => l.split(',').map(v => v.trim().replace(/^"|"$/g,'')));
+        if (lines.length < 2) { showToast('Sheet has no data rows', true); statusEl.textContent = ''; return; }
+        // Expected columns: Course Name, Image URL, Link, Category, Creator
+        let added = 0, skipped = 0;
+        for (let i = 1; i < lines.length; i++) {
+          const [title, image, link, category, creator] = lines[i];
+          if (!title || !link) { skipped++; continue; }
+          await addDoc(collection(db, 'courses'), {
+            title, image: image || '', link, category: category || 'Other',
+            creator: creator || '', createdAt: Date.now()
+          });
+          added++;
+          statusEl.textContent = `Importing… ${added} added`;
+        }
+        await logActivity('bulk_import', `${added} courses imported from Google Sheet`);
+        await loadCourses(); renderManageList();
+        statusEl.textContent = `✅ Done! ${added} courses added, ${skipped} skipped.`;
+        showToast(`${added} courses imported! 🚀`);
+        document.getElementById('sheetUrl').value = '';
+      } catch(e) {
+        showToast('Import error: ' + e.message, true);
+        statusEl.textContent = '❌ ' + e.message;
+      } finally {
+        btn.textContent = '📥 Import from Sheet'; btn.disabled = false;
+      }
+    };
+
+    // ── EDIT COURSE ──
+    window.editCourse = function(id) {
+      let course;
+      if (id.startsWith('default_')) { course = DEFAULT_COURSES.find(c => c.defaultId === id); }
+      else { course = firebaseCourses.find(c => c.id === id); }
+      if (!course) return;
+      editingCourseId = id;
+      switchAdminTab('add');
+      document.getElementById('cTitle').value   = course.title || '';
+      document.getElementById('cImage').value   = course.image || '';
+      document.getElementById('cLink').value    = course.link  || '';
+      document.getElementById('cCreator').value = course.creator || '';
+      document.getElementById('cCat').value     = course.category || 'Development';
+      const btn = document.querySelector('#tabAdd .submit-btn');
+      btn.textContent = '💾 Save Changes';
+      const preview = document.getElementById('imagePreview');
+      if (course.image) { preview.src = course.image; preview.style.display = 'block'; }
+      showToast('Editing: ' + course.title);
+    };
+
+    // ── DELETE COURSE ──
+    window.deleteCourse = async function(id) {
+      if (!confirm('Delete this course?')) return;
+      try {
+        const c = firebaseCourses.find(x => x.id === id);
+        if (!id.startsWith('default_')) await deleteDoc(doc(db, 'courses', id));
+        await logActivity('course_deleted', c ? c.title : id);
+        await loadCourses(); renderManageList();
+        showToast('Course removed');
+      } catch(e) { showToast('Delete error: ' + e.message, true); }
+    };
+
+    // ── MANAGE LIST ──
+    window.renderManageList = function() {
+      const el = document.getElementById('manageList');
+      const allManaged = [...firebaseCourses, ...DEFAULT_COURSES];
+      if (!allManaged.length) { el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">No courses yet.</p>'; return; }
+      el.innerHTML = allManaged.map(c => {
+        const cid = c.id || c.defaultId;
+        const isDefault = !!c.isDefault;
+        return `
+        <div class="manage-item">
+          ${c.image ? `<img class="manage-thumb" src="${c.image}" alt="" onerror="this.style.display='none'"/>` : '<div class="manage-thumb-ph">📚</div>'}
+          <div class="manage-item-info">
+            <span class="manage-item-title">${c.title}</span>
+            <span class="manage-item-cat">${c.category}</span>
+          </div>
+          <div class="manage-item-actions">
+            <button class="manage-edit-btn" onclick="editCourse('${cid}')">✏️</button>
+            ${isDefault ? '' : `<button class="manage-item-del" onclick="deleteCourse('${cid}')">🗑</button>`}
+          </div>
+        </div>`;
+      }).join('');
+    };
+
+    // ── UPCOMING ADMIN ──
+    window.publishUpcoming = async function() {
+      const title = document.getElementById('uTitle').value.trim();
+      if (!title) { showToast('Title is required', true); return; }
+      const btn = document.getElementById('upcomingPublishBtn');
+      btn.textContent = 'Saving…'; btn.disabled = true;
+      try {
+        let imageUrl = document.getElementById('uImage').value.trim();
+        const fileInput = document.getElementById('uImageFile');
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          const storRef = ref(stor, 'upcoming/' + Date.now() + '_' + file.name);
+          const snap = await uploadBytes(storRef, file);
+          imageUrl = await getDownloadURL(snap.ref);
+        }
+        const data = { title, image: imageUrl, category: document.getElementById('uCat').value, creator: document.getElementById('uCreator').value.trim(), expectedDate: document.getElementById('uDate').value.trim(), createdAt: Date.now() };
+        if (editingUpcomingId) {
+          await updateDoc(doc(db, 'upcoming', editingUpcomingId), data);
+          await logActivity('upcoming_updated', title);
+          showToast('Updated ✓'); editingUpcomingId = null;
+        } else {
+          await addDoc(collection(db, 'upcoming'), data);
+          await logActivity('upcoming_added', title);
+          showToast('Upcoming added! 🔜');
+        }
+        ['uTitle','uImage','uCreator','uDate'].forEach(id => document.getElementById(id).value = '');
+        if (fileInput) fileInput.value = '';
+        document.getElementById('uImagePreview').style.display = 'none';
+        btn.textContent = '🔜 Add Upcoming Course'; editingUpcomingId = null;
+        await loadUpcoming(); renderUpcomingManageList();
+      } catch(e) { showToast('Error: ' + e.message, true); }
+      finally { btn.disabled = false; }
+    };
+
+    window.renderUpcomingManageList = function() {
+      const el = document.getElementById('upcomingManageList');
+      if (!el) return;
+      if (!upcomingCourses.length) { el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">No upcoming courses yet.</p>'; return; }
+      el.innerHTML = upcomingCourses.map(c => `
+        <div class="manage-item">
+          ${c.image ? `<img class="manage-thumb" src="${c.image}" alt="" onerror="this.style.display='none'"/>` : '<div class="manage-thumb-ph">🔜</div>'}
+          <div class="manage-item-info">
+            <span class="manage-item-title">${c.title}</span>
+            <span class="manage-item-cat">${c.expectedDate || c.category || ''}</span>
+          </div>
+          <div class="manage-item-actions">
+            <button class="manage-edit-btn" onclick="editUpcoming('${c.id}')">✏️</button>
+            <button class="manage-item-del" onclick="deleteUpcoming('${c.id}')">🗑</button>
+          </div>
+        </div>`).join('');
+    };
+
+    window.editUpcoming = function(id) {
+      const c = upcomingCourses.find(x => x.id === id);
+      if (!c) return;
+      editingUpcomingId = id;
+      document.getElementById('uTitle').value   = c.title || '';
+      document.getElementById('uImage').value   = c.image || '';
+      document.getElementById('uCreator').value = c.creator || '';
+      document.getElementById('uDate').value    = c.expectedDate || '';
+      document.getElementById('uCat').value     = c.category || 'Development';
+      const btn = document.getElementById('upcomingPublishBtn');
+      btn.textContent = '💾 Update Upcoming';
+      if (c.image) { const p = document.getElementById('uImagePreview'); p.src = c.image; p.style.display = 'block'; }
+      switchAdminTab('upcoming');
+    };
+
+    window.deleteUpcoming = async function(id) {
+      if (!confirm('Delete this upcoming course?')) return;
+      try {
+        await deleteDoc(doc(db, 'upcoming', id));
+        await logActivity('upcoming_deleted', id);
+        await loadUpcoming(); renderUpcomingManageList();
+        showToast('Removed');
+      } catch(e) { showToast('Error: ' + e.message, true); }
+    };
+
+    // ── SAVE LINKS SETTINGS ──
+    window.saveLinksSettings = async function() {
+      const updates = {
+        navTelegramUser:     document.getElementById('setNavTg').value.trim(),
+        cantFindUser:        document.getElementById('setCantFind').value.trim(),
+        contactTelegramUser: document.getElementById('setContactTg').value.trim(),
+        popupTelegramUser:   document.getElementById('setPopupTg').value.trim(),
+      };
+      await saveSettings(updates);
+    };
+
+    window.saveAnnouncementSettings = async function() {
+      const updates = {
+        announcementEnabled: document.getElementById('setAnnEnabled').checked,
+        announcementText:    document.getElementById('setAnnText').value.trim(),
+      };
+      await saveSettings(updates);
+    };
+
+    window.saveUpcomingVisibility = async function() {
+      await saveSettings({ showUpcoming: document.getElementById('setShowUpcoming').checked });
+    };
+
+    // ── ACTIVITY LOG ──
+    window.loadActivityLog = async function() {
+      const el = document.getElementById('activityLogList');
+      el.innerHTML = '<p style="color:var(--muted);font-size:.82rem;">Loading…</p>';
+      try {
+        const q    = query(collection(db, 'adminLogs'), orderBy('timestamp', 'desc'));
+        const snap = await getDocs(q);
+        const logs = snap.docs.map(d => d.data());
+        if (!logs.length) { el.innerHTML = '<p style="color:var(--muted);font-size:.82rem;">No activity yet.</p>'; return; }
+        el.innerHTML = logs.slice(0, 50).map(l => `
+          <div class="log-item">
+            <span class="log-action">${l.action}</span>
+            <span class="log-detail">${l.details || ''}</span>
+            <span class="log-time">${l.dateStr || new Date(l.timestamp).toLocaleString()}</span>
+          </div>`).join('');
+      } catch(e) { el.innerHTML = '<p style="color:#ef4444;font-size:.82rem;">Failed to load logs: ' + e.message + '</p>'; }
+    };
+
+    // ── COURSE REQUESTS ADMIN ──
+    window.loadRequestsAdmin = async function() {
+      await loadCourseRequests();
+      const el = document.getElementById('requestsList');
+      if (!courseRequests.length) { el.innerHTML = '<p style="color:var(--muted);font-size:.82rem;">No requests yet.</p>'; return; }
+      el.innerHTML = courseRequests.map(r => `
+        <div class="manage-item" style="flex-direction:column;align-items:flex-start;gap:6px;">
+          <div style="display:flex;width:100%;justify-content:space-between;align-items:center;">
+            <span style="font-size:.82rem;font-weight:600;color:var(--text);">📚 ${r.courseName}</span>
+            <span style="font-size:.7rem;color:var(--muted);">${r.dateStr || ''}</span>
+          </div>
+          <span style="font-size:.75rem;color:var(--accent2);">👤 ${r.studentName}</span>
+          ${r.note ? `<span style="font-size:.75rem;color:var(--muted);">${r.note}</span>` : ''}
+          <button class="manage-item-del" style="align-self:flex-end;" onclick="deleteRequest('${r.id}')">🗑 Done</button>
+        </div>`).join('');
+    };
+
+    window.deleteRequest = async function(id) {
+      try {
+        await deleteDoc(doc(db, 'courseRequests', id));
+        await loadRequestsAdmin();
+        showToast('Request dismissed');
+      } catch(e) { showToast('Error: ' + e.message, true); }
+    };
+
+    // ── UPDATE ADMIN CREDENTIALS ──
+    window.updateAdminCredentials = async function() {
+      const newEmail = document.getElementById('newAdminEmail').value.trim();
+      const newPass  = document.getElementById('newAdminPass').value.trim();
+      if (!newEmail || !newPass) { showToast('Email and password required', true); return; }
+      if (!currentAdminUser) { showToast('Not authenticated', true); return; }
+      try {
+        // Update in Firebase Auth (requires re-auth for sensitive operations, simplified here)
+        await setDoc(doc(db, 'settings', 'adminCredentials'), { email: newEmail, updatedAt: Date.now() });
+        await logActivity('credentials_update_attempted', newEmail);
+        showToast('To fully update Firebase Auth credentials, use the Firebase Console → Authentication tab. Settings saved as reference ✓');
+        document.getElementById('newAdminEmail').value = '';
+        document.getElementById('newAdminPass').value  = '';
+      } catch(e) { showToast('Error: ' + e.message, true); }
+    };
+
+    // ── INIT ──
+    window.addEventListener('DOMContentLoaded', async () => {
+      showSkeletons(6);
+      await loadAll();
+      document.getElementById('setNavTg').value          = siteSettings.navTelegramUser || 'naturoyt';
+      document.getElementById('setCantFind').value       = siteSettings.cantFindUser || 'coursescode';
+      document.getElementById('setContactTg').value      = siteSettings.contactTelegramUser || 'naturoyt';
+      document.getElementById('setPopupTg').value        = siteSettings.popupTelegramUser || 'naturoyt';
+      document.getElementById('setAnnEnabled').checked   = !!siteSettings.announcementEnabled;
+      document.getElementById('setAnnText').value        = siteSettings.announcementText || '';
+      document.getElementById('setShowUpcoming').checked = siteSettings.showUpcoming !== false;
+    });
+
+    // ── FIREBASE AUTH LOGIN ──
+    window.doLogin = async function() {
+      const email = document.getElementById('adminEmail').value.trim();
+      const pass  = document.getElementById('adminPass').value;
+      if (!email || !pass) { showToast('Enter email and password', true); return; }
+      const btn = document.querySelector('#adminLoginModal .submit-btn');
+      btn.textContent = 'Signing in…'; btn.disabled = true;
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        closeAdmin();
+        renderManageList();
+        renderUpcomingManageList();
+        document.getElementById('adminDashModal').classList.add('show');
+        await logActivity('admin_login', email);
+      } catch(e) {
+        showToast('Login failed: ' + (e.code === 'auth/invalid-credential' ? 'Wrong email or password' : e.message), true);
+      } finally {
+        btn.textContent = 'Sign In'; btn.disabled = false;
+      }
+    };
+
+    window.doLogout = async function() {
+      await logActivity('admin_logout', currentAdminUser ? currentAdminUser.email : '');
+      await signOut(auth);
+      closeDash();
+      showToast('Logged out');
+    };
+  </script>
+
+  <style>
+    /* ══ THEME VARIABLES ══ */
+    :root[data-theme="dark"] {
+      --bg:#0a0a0f; --bg2:#111118; --bg3:#1a1a24;
+      --border:rgba(255,255,255,0.07);
+      --accent:#7c5cfc; --accent2:#a78bfa;
+      --accent-glow:rgba(124,92,252,0.25);
+      --text:#f0f0f8; --muted:#888899;
+      --card-bg:#13131c; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.4);
+      --input-bg:#0e0e17;
+      --announcement-bg: linear-gradient(90deg, #7c5cfc22, #a78bfa22);
+      --announcement-border: rgba(124,92,252,0.3);
+    }
+    :root[data-theme="light"] {
+      --bg:#f5f0e8; --bg2:#ede8df; --bg3:#ffffff;
+      --border:rgba(0,0,0,0.1);
+      --accent:#c8860a; --accent2:#e0a020;
+      --accent-glow:rgba(200,134,10,0.2);
+      --text:#1a1208; --muted:#7a6a50;
+      --card-bg:#ffffff; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.12);
+      --input-bg:#f0ece3;
+      --announcement-bg: linear-gradient(90deg, #c8860a22, #e0a02022);
+      --announcement-border: rgba(200,134,10,0.35);
+    }
+
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;overflow-x:hidden;transition:background .3s,color .3s}
+
+    /* ══ ANNOUNCEMENT BANNER ══ */
+    #announcementBanner{display:none;background:var(--announcement-bg);border-bottom:1px solid var(--announcement-border);padding:10px 5%;align-items:center;justify-content:center;gap:10px;font-size:.85rem;font-weight:500;color:var(--text);position:relative;z-index:99;margin-top:64px}
+    #announcementBanner .ann-icon{font-size:1rem}
+    #announcementBanner .ann-close{position:absolute;right:16px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1}
+
+    /* ══ NAV ══ */
+    nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 5%;height:64px;background:var(--bg);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);transition:background .3s}
+    .nav-logo{font-family:'Space Grotesk',sans-serif;font-size:1.25rem;font-weight:700;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:8px}
+    .nav-logo span.logo-k{background:var(--accent);color:#fff;height:32px;padding:0 8px;border-radius:8px;display:grid;place-items:center;font-size:.72rem;font-weight:800;letter-spacing:.04em}
+    .nav-right{display:flex;align-items:center;gap:10px}
+    .nav-btn{background:var(--accent);color:#fff;text-decoration:none;padding:8px 20px;border-radius:8px;font-size:.85rem;font-weight:600;transition:opacity .2s;border:none;cursor:pointer}
+    .nav-btn:hover{opacity:.85}
+    .theme-toggle{background:var(--bg3);border:1px solid var(--border);color:var(--text);width:38px;height:38px;border-radius:50%;display:grid;place-items:center;cursor:pointer;font-size:1rem;transition:all .2s;flex-shrink:0}
+    .theme-toggle:hover{border-color:var(--accent)}
+
+    /* ══ HERO ══ */
+    .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:100px 5% 60px;position:relative;overflow:hidden}
+    .hero::before{content:'';position:absolute;top:-40%;left:50%;transform:translateX(-50%);width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);pointer-events:none}
+    .hero-eyebrow{font-size:.75rem;font-weight:600;letter-spacing:.2em;color:var(--accent2);text-transform:uppercase;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+    .hero-eyebrow::before,.hero-eyebrow::after{content:'✦';font-size:.6rem;opacity:.6}
+    .hero h1{font-family:'Space Grotesk',sans-serif;font-size:clamp(2.4rem,6vw,4.5rem);font-weight:800;line-height:1.1;max-width:800px;margin-bottom:24px}
+    .hero h1 em{font-style:normal;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero-sub{font-size:1.05rem;color:var(--muted);max-width:500px;margin-bottom:20px;line-height:1.6}
+
+    /* ══ HERO COUNTER ══ */
+    .hero-counter{display:inline-flex;align-items:center;gap:8px;background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:8px 20px;margin-bottom:36px;font-size:.9rem;color:var(--muted)}
+    .hero-counter strong{font-family:'Space Grotesk',sans-serif;font-size:1.5rem;font-weight:800;color:var(--accent);line-height:1}
+    .hero-counter span{font-weight:600;color:var(--text)}
+    .hero-video{width:100%;max-width:700px;aspect-ratio:16/9;border-radius:16px;overflow:hidden;border:1px solid var(--border);box-shadow:0 0 60px var(--accent-glow)}
+    .hero-video iframe{width:100%;height:100%;border:none}
+
+    /* ══ SECTION TITLE ══ */
+    .section-title{font-family:'Space Grotesk',sans-serif;font-size:1.9rem;font-weight:700;margin-bottom:12px}
+    .section-title span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .section-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:32px}
+    .course-count-badge{background:var(--bg3);border:1px solid var(--border);color:var(--accent2);padding:6px 16px;border-radius:999px;font-size:.82rem;font-weight:600}
+
+    /* ══ SEARCH (wider) ══ */
+    .search-wrap{position:relative;max-width:600px;width:100%;margin:0 auto 28px}
+    .search-wrap input{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:13px 20px 13px 48px;border-radius:14px;font-size:.95rem;font-family:'Inter',sans-serif;outline:none;transition:border-color .2s,box-shadow .2s}
+    .search-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+    .search-wrap input::placeholder{color:var(--muted)}
+    .search-icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:1.05rem;pointer-events:none}
+
+    /* ══ COURSES ══ */
+    #courses{padding:80px 5%}
+    .filter-bar{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:36px}
+    .filter-btn{background:var(--bg3);border:1px solid var(--border);color:var(--muted);padding:7px 16px;border-radius:999px;font-size:.82rem;cursor:pointer;transition:all .2s;font-family:'Inter',sans-serif;display:flex;align-items:center;gap:6px}
+    .filter-btn:hover,.filter-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .filter-count{background:rgba(255,255,255,0.2);border-radius:999px;padding:1px 7px;font-size:.7rem;font-weight:700}
+    .filter-btn:not(.active) .filter-count{background:var(--bg2);color:var(--muted)}
+    .course-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px}
+    .course-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:transform .2s,box-shadow .2s;cursor:pointer;position:relative}
+    .course-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px var(--accent-glow);border-color:rgba(124,92,252,.3)}
+    .course-thumb{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--bg3)}
+    .course-thumb-placeholder{width:100%;aspect-ratio:16/9;background:linear-gradient(135deg,var(--bg3),var(--bg2));display:grid;place-items:center;font-size:2.5rem}
+    .course-info{padding:16px}
+    .course-category{font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent2);margin-bottom:6px}
+    .course-title{font-family:'Space Grotesk',sans-serif;font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:6px;line-height:1.4}
+    .course-creator{font-size:.78rem;color:var(--muted);margin-bottom:14px}
+    .card-actions{display:flex;gap:8px;align-items:center}
+    .course-btn{flex:1;display:block;text-align:center;background:var(--accent);color:#fff;text-decoration:none;padding:9px 0;border-radius:8px;font-size:.82rem;font-weight:600;transition:opacity .2s}
+    .course-btn:hover{opacity:.85}
+    .wa-share-btn{flex-shrink:0;background:#25D366;color:#fff;border:none;border-radius:8px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;text-decoration:none;transition:opacity .2s}
+    .wa-share-btn:hover{opacity:.85}
+    .courses-empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:60px 0;font-size:.95rem}
+
+    /* ══ SKELETON CARDS ══ */
+    .skeleton-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+    .skel{background:linear-gradient(90deg,var(--bg3) 25%,var(--bg2) 50%,var(--bg3) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px}
+    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+    .skel-thumb{width:100%;aspect-ratio:16/9;border-radius:0}
+    .skel-body{padding:16px;display:flex;flex-direction:column;gap:10px}
+    .skel-cat{height:10px;width:60px}
+    .skel-title{height:14px;width:85%}
+    .skel-sub{height:10px;width:50%}
+    .skel-btn{height:36px;width:100%;margin-top:4px;border-radius:8px}
+
+    /* ══ NEW BADGE ══ */
+    .new-badge{position:absolute;top:10px;left:10px;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;font-size:.65rem;font-weight:800;padding:3px 9px;border-radius:999px;letter-spacing:.08em;text-transform:uppercase;z-index:2;box-shadow:0 2px 8px rgba(239,68,68,0.4)}
+
+    /* ══ QUICK PREVIEW MODAL ══ */
+    .preview-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:400;display:none;align-items:flex-end;justify-content:center}
+    .preview-overlay.show{display:flex}
+    .preview-sheet{background:var(--bg3);border-radius:24px 24px 0 0;width:100%;max-width:560px;padding:32px;border:1px solid var(--border);border-bottom:none;transform:translateY(100%);transition:transform .32s cubic-bezier(.4,0,.2,1)}
+    .preview-sheet.up{transform:translateY(0)}
+    .preview-drag-bar{width:40px;height:4px;background:var(--border);border-radius:999px;margin:0 auto 20px}
+    .preview-thumb{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;margin-bottom:16px}
+    .preview-thumb-ph{width:100%;aspect-ratio:16/9;background:linear-gradient(135deg,var(--bg2),var(--bg));border-radius:12px;display:grid;place-items:center;font-size:3rem;margin-bottom:16px}
+    .preview-cat{font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent2);margin-bottom:6px}
+    .preview-title{font-family:'Space Grotesk',sans-serif;font-size:1.2rem;font-weight:700;color:var(--text);margin-bottom:4px;line-height:1.3}
+    .preview-creator{font-size:.82rem;color:var(--muted);margin-bottom:20px}
+    .preview-actions{display:flex;gap:10px}
+    .preview-join{flex:1;background:var(--accent);color:#fff;text-decoration:none;padding:13px;border-radius:10px;font-weight:600;font-size:.9rem;text-align:center;transition:opacity .2s}
+    .preview-join:hover{opacity:.85}
+    .preview-wa{background:#25D366;color:#fff;border:none;border-radius:10px;padding:13px 16px;display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.85rem;font-weight:600;text-decoration:none;transition:opacity .2s}
+    .preview-wa:hover{opacity:.85}
+    .preview-close{position:absolute;top:16px;right:20px;background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer}
+
+    /* ══ UPCOMING SECTION ══ */
+    #upcomingSection{padding:0 5% 80px}
+    .upcoming-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;overflow:hidden;position:relative;opacity:.9}
+    .upcoming-soon{position:absolute;top:10px;right:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:.65rem;font-weight:800;padding:3px 10px;border-radius:999px;letter-spacing:.08em;text-transform:uppercase;z-index:2}
+    .upcoming-date{font-size:.78rem;color:var(--accent2);margin-bottom:6px}
+    .upcoming-notify{font-size:.75rem;color:var(--muted);font-style:italic}
+
+    /* ══ COMMUNITY SECTION ══ */
+    #community{padding:80px 5%;background:var(--bg2);border-top:1px solid var(--border)}
+    .community-inner{max-width:800px;margin:0 auto}
+    .community-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-top:28px}
+    .community-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;text-align:center;transition:transform .2s,box-shadow .2s}
+    .community-card:hover{transform:translateY(-3px);box-shadow:0 8px 30px var(--accent-glow)}
+    .community-card-icon{font-size:2rem;margin-bottom:12px}
+    .community-card-title{font-family:'Space Grotesk',sans-serif;font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:6px}
+    .community-card-desc{font-size:.78rem;color:var(--muted);line-height:1.5}
+    .community-coming{display:inline-block;margin-top:10px;font-size:.68rem;background:var(--bg3);border:1px solid var(--border);color:var(--muted);padding:2px 10px;border-radius:999px}
+
+    /* ══ COURSE REQUEST SECTION ══ */
+    #courseRequest{padding:80px 5%;border-top:1px solid var(--border)}
+    .request-inner{max-width:540px;margin:0 auto;text-align:center}
+    .request-form{background:var(--card-bg);border:1px solid var(--border);border-radius:16px;padding:28px;margin-top:24px;text-align:left}
+
+    /* ══ ABOUT ══ */
+    #about{padding:80px 5%;background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+    .about-inner{max-width:700px;margin:0 auto;text-align:center}
+    .about-logo{font-family:'Space Grotesk',sans-serif;font-size:1.5rem;font-weight:800;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:28px}
+    .about-logo .k-badge{background:var(--accent);color:#fff;height:40px;padding:0 10px;border-radius:10px;display:grid;place-items:center;font-size:.8rem;font-weight:800;letter-spacing:.04em}
+    .about-inner p{color:var(--muted);line-height:1.8;font-size:1rem;margin-bottom:16px}
+    .about-inner strong{color:var(--text)}
+    .about-tags{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:32px}
+    .about-tag{background:var(--bg3);border:1px solid var(--border);color:var(--muted);padding:6px 16px;border-radius:999px;font-size:.8rem}
+
+    /* ══ FOOTER ══ */
+    footer{padding:40px 5%;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;background:var(--bg)}
+    .footer-copy{font-size:.82rem;color:var(--muted)}
+    .footer-copy strong{color:var(--text)}
+    .footer-links{display:flex;gap:20px}
+    .footer-links a{font-size:.82rem;color:var(--muted);text-decoration:none;transition:color .2s}
+    .footer-links a:hover{color:var(--text)}
+
+    /* ══ FLOATING BUTTONS ══ */
+    .cant-find{position:fixed;bottom:24px;left:24px;z-index:50}
+    .cant-find a{background:var(--accent);color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-size:.85rem;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px var(--accent-glow);transition:opacity .2s;font-weight:600}
+    .cant-find a:hover{opacity:.88}
+    .cant-find-icon{width:22px;height:22px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center}
+    .cant-find-icon svg{width:14px;height:14px}
+    .admin-trigger{position:fixed;bottom:24px;right:24px;z-index:50;background:var(--bg3);border:1px solid var(--border);color:var(--muted);width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;font-size:1rem;transition:all .2s}
+    .admin-trigger:hover{border-color:var(--accent);color:var(--text)}
+
+    /* ══ TELEGRAM POPUP ══ */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s}
+    .overlay.show{opacity:1;pointer-events:all}
+    .popup{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:36px;max-width:420px;width:90%;text-align:center;position:relative;transform:scale(.92);transition:transform .3s}
+    .overlay.show .popup{transform:scale(1)}
+    .popup-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer}
+    .popup h3{font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:12px;color:var(--text)}
+    .popup p{color:var(--muted);font-size:.9rem;line-height:1.6;margin-bottom:24px}
+    .tg-popup-icon{width:64px;height:64px;background:linear-gradient(135deg,#2AABEE,#229ED9);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+    .tg-popup-icon svg{width:34px;height:34px;fill:#fff}
+    .popup-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:#fff;text-decoration:none;padding:13px 0;border-radius:10px;font-weight:600;margin-bottom:12px;transition:opacity .2s;font-size:.95rem}
+    .popup-btn:hover{opacity:.85}
+    .popup-skip{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85rem;transition:color .2s}
+    .popup-skip:hover{color:var(--text)}
+
+    /* ══ MODALS ══ */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center;padding:20px}
+    .modal-overlay.show{display:flex}
+    .modal{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:36px;max-width:560px;width:100%;position:relative;max-height:90vh;overflow-y:auto}
+    .modal-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer}
+    .modal h2{font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:6px;color:var(--text)}
+    .modal-sub{color:var(--muted);font-size:.85rem;margin-bottom:24px}
+    .form-group{margin-bottom:16px}
+    .form-group label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:6px;font-weight:500}
+    .form-group input,.form-group select,.form-group textarea{width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:11px 14px;border-radius:9px;font-family:'Inter',sans-serif;font-size:.9rem;outline:none;transition:border-color .2s}
+    .form-group textarea{resize:vertical;min-height:80px}
+    .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
+    .form-group select option{background:var(--bg2)}
+    .submit-btn{width:100%;background:var(--accent);color:#fff;border:none;padding:13px;border-radius:10px;font-family:'Inter',sans-serif;font-size:.95rem;font-weight:600;cursor:pointer;margin-top:8px;transition:opacity .2s}
+    .submit-btn:hover{opacity:.85}
+    .submit-btn:disabled{opacity:.5;cursor:not-allowed}
+
+    /* image upload area */
+    .image-upload-tabs{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px}
+    .img-tab{flex:1;background:none;border:none;color:var(--muted);padding:8px;cursor:pointer;font-size:.8rem;font-family:'Inter',sans-serif;transition:all .2s}
+    .img-tab.active{background:var(--accent);color:#fff}
+    .img-panel{display:none}
+    .img-panel.active{display:block}
+    #imagePreview,#uImagePreview{width:100%;border-radius:8px;margin-top:8px;max-height:140px;object-fit:cover;display:none}
+
+    /* ══ ADMIN TABS ══ */
+    .admin-tabs{display:flex;gap:6px;margin-bottom:24px;flex-wrap:wrap}
+    .admin-tab{flex:1;min-width:80px;background:var(--bg2);border:1px solid var(--border);color:var(--muted);padding:9px 6px;cursor:pointer;font-family:'Inter',sans-serif;font-size:.72rem;transition:all .2s;border-radius:8px;font-weight:500;white-space:nowrap}
+    .admin-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .tab-panel{display:none}
+    .tab-panel.active{display:block}
+    .manage-list,.manage-upcoming-list{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+    .manage-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid var(--border)}
+    .manage-thumb{width:44px;height:32px;object-fit:cover;border-radius:6px;flex-shrink:0}
+    .manage-thumb-ph{width:44px;height:32px;background:var(--bg3);border-radius:6px;display:grid;place-items:center;font-size:.9rem;flex-shrink:0}
+    .manage-item-info{flex:1;min-width:0}
+    .manage-item-title{font-size:.82rem;color:var(--text);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+    .manage-item-cat{font-size:.72rem;color:var(--muted)}
+    .manage-item-actions{display:flex;gap:6px;flex-shrink:0}
+    .manage-edit-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:.85rem;padding:4px 8px;border-radius:6px;transition:border-color .2s}
+    .manage-edit-btn:hover{border-color:var(--accent)}
+    .manage-item-del{background:none;border:1px solid rgba(239,68,68,.3);color:#ef4444;cursor:pointer;font-size:.85rem;padding:4px 8px;border-radius:6px}
+    .manage-item-del:hover{background:rgba(239,68,68,.1)}
+    .shorten-row{display:flex;gap:8px}
+    .shorten-row input{flex:1}
+    .shorten-btn{background:var(--accent);border:none;color:#fff;padding:0 14px;border-radius:9px;cursor:pointer;font-size:.8rem;font-weight:600;white-space:nowrap;font-family:'Inter',sans-serif}
+    .settings-section{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+    .settings-section h4{font-size:.85rem;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+    .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    .toggle-row label{font-size:.85rem;color:var(--muted)}
+    .toggle-switch{position:relative;width:44px;height:24px}
+    .toggle-switch input{opacity:0;width:0;height:0;position:absolute}
+    .toggle-slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:999px;transition:.3s}
+    .toggle-slider::before{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;left:3px;bottom:3px;transition:.3s}
+    .toggle-switch input:checked + .toggle-slider{background:var(--accent)}
+    .toggle-switch input:checked + .toggle-slider::before{transform:translateX(20px)}
+
+    /* ══ ACTIVITY LOG ══ */
+    .log-item{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);margin-bottom:6px}
+    .log-action{font-size:.78rem;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:.06em}
+    .log-detail{font-size:.78rem;color:var(--text)}
+    .log-time{font-size:.7rem;color:var(--muted)}
+
+    /* ══ BULK IMPORT ══ */
+    .bulk-import-box{background:var(--bg2);border:1px dashed var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+    .bulk-import-hint{font-size:.75rem;color:var(--muted);margin-bottom:12px;line-height:1.6}
+    .bulk-import-hint strong{color:var(--accent2)}
+    #bulkImportStatus{font-size:.78rem;color:var(--accent2);margin-top:8px;min-height:20px}
+
+    /* ══ LOGOUT BTN ══ */
+    .logout-btn{background:none;border:1px solid rgba(239,68,68,.3);color:#ef4444;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:.78rem;font-family:'Inter',sans-serif;margin-left:auto;display:block;margin-top:12px}
+    .logout-btn:hover{background:rgba(239,68,68,.1)}
+
+    /* ══ TOAST ══ */
+    .toast{position:fixed;bottom:80px;right:24px;z-index:999;background:var(--success);color:#fff;padding:12px 20px;border-radius:10px;font-size:.85rem;font-weight:600;opacity:0;pointer-events:none;transform:translateY(10px);transition:all .3s}
+    .toast.show{opacity:1;transform:translateY(0)}
+
+    /* ══ SCROLL REVEAL ══ */
+    .reveal{opacity:0;transform:translateY(20px);transition:opacity .5s,transform .5s}
+    .reveal.visible{opacity:1;transform:none}
+
+    @media(max-width:600px){
+      .hero h1{font-size:2.1rem}
+      nav{padding:0 4%}
+      #courses,#about,#upcomingSection,#community,#courseRequest{padding:60px 4%}
+      .admin-tabs{gap:4px}
+      .admin-tab{font-size:.68rem;padding:7px 4px;min-width:60px}
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ══ ANNOUNCEMENT BANNER ══ -->
+  <div id="announcementBanner">
+    <span class="ann-icon">📢</span>
+    <span id="announcementText"></span>
+    <button class="ann-close" onclick="this.parentElement.style.display='none'">×</button>
+  </div>
+
+  <!-- ══ NAV ══ -->
+  <nav>
+    <a href="#" class="nav-logo"><span class="logo-k">ACC</span> All Coding Courses</a>
+    <div class="nav-right">
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" id="themeBtn">🌙</button>
+      <button class="nav-btn" id="navTgLink" data-tg="naturoyt" onclick="openTelegramById('navTgLink')">Request Courses</button>
+    </div>
+  </nav>
+
+  <!-- ══ HERO ══ -->
+  <section class="hero">
+    <div class="hero-eyebrow">Free Learning Ecosystem</div>
+    <h1>Master your skills,<br><em>Absolutely Free.</em></h1>
+    <p class="hero-sub">Premium courses, zero cost. Learn from the best without paying a rupee.</p>
+    <div class="hero-counter">
+      <strong id="courseCountNum">0</strong>
+      <span>Free Courses &amp; Growing</span>
+      🚀
+    </div>
+    <div class="hero-video">
+      <iframe src="https://www.youtube.com/embed/S1NM2gKHKqY" allowfullscreen loading="lazy"></iframe>
+    </div>
+  </section>
+
+  <!-- ══ COURSE LIBRARY ══ -->
+  <section id="courses">
+    <div class="section-header reveal">
+      <h2 class="section-title">Course <span>Library</span></h2>
+      <span class="course-count-badge" id="courseCount">Loading…</span>
+    </div>
+
+    <div class="search-wrap reveal">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="Search courses, creators, categories…" oninput="doSearch(this.value)" />
+    </div>
+
+    <div class="filter-bar reveal" id="filterBar">
+      <button class="filter-btn active" data-cat="all">All</button>
+    </div>
+    <div class="course-grid" id="courseGrid">
+      <!-- skeletons shown by JS -->
+    </div>
+  </section>
+
+  <!-- ══ UPCOMING COURSES ══ -->
+  <section id="upcomingSection">
+    <div class="section-header reveal">
+      <h2 class="section-title">Upcoming <span>Courses</span></h2>
+    </div>
+    <div class="course-grid reveal" id="upcomingGrid">
+      <div class="courses-empty">No upcoming courses announced yet.</div>
+    </div>
+  </section>
+
+  <!-- ══ COURSE REQUEST SECTION ══ -->
+  <section id="courseRequest">
+    <div class="request-inner reveal">
+      <h2 class="section-title">Can't find what<br><span>you're looking for?</span></h2>
+      <p style="color:var(--muted);font-size:.95rem;margin-top:10px;line-height:1.6;">Request a course and we'll try to add it to the library.</p>
+      <div class="request-form">
+        <div class="form-group">
+          <label>Your Name (optional)</label>
+          <input type="text" id="reqName" placeholder="e.g. Rahul"/>
+        </div>
+        <div class="form-group">
+          <label>Course Name *</label>
+          <input type="text" id="reqCourse" placeholder="e.g. React Native by Hitesh Choudhary"/>
+        </div>
+        <div class="form-group">
+          <label>Additional Note (optional)</label>
+          <textarea id="reqNote" placeholder="Any details — creator name, platform, etc."></textarea>
+        </div>
+        <button class="submit-btn" id="reqSubmitBtn" onclick="submitCourseRequest()">📩 Send Request</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ COMMUNITY SECTION ══ -->
+  <section id="community">
+    <div class="community-inner reveal">
+      <h2 class="section-title" style="text-align:center;">Our <span>Community</span></h2>
+      <p style="text-align:center;color:var(--muted);font-size:.95rem;margin-top:8px;line-height:1.6;">More than courses — a place to grow together.</p>
+      <div class="community-grid">
+        <div class="community-card">
+          <div class="community-card-icon">💬</div>
+          <div class="community-card-title">Telegram Channel</div>
+          <div class="community-card-desc">Get instant updates on new course drops and join 10k+ learners.</div>
+        </div>
+        <div class="community-card">
+          <div class="community-card-icon">✅</div>
+          <div class="community-card-title">Habit Tracker</div>
+          <div class="community-card-desc">Track your daily learning habits and stay consistent.</div>
+          <span class="community-coming">Coming Soon</span>
+        </div>
+        <div class="community-card">
+          <div class="community-card-icon">🏆</div>
+          <div class="community-card-title">Leaderboard</div>
+          <div class="community-card-desc">See who's learning the most this month. Friendly competition!</div>
+          <span class="community-coming">Coming Soon</span>
+        </div>
+        <div class="community-card">
+          <div class="community-card-icon">📝</div>
+          <div class="community-card-title">Study Notes</div>
+          <div class="community-card-desc">Share and discover notes from fellow students.</div>
+          <span class="community-coming">Coming Soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ ABOUT ══ -->
+  <section id="about">
+    <div class="about-inner reveal">
+      <div class="about-logo"><span class="k-badge">ACC</span> All Coding Courses</div>
+      <p>We believe that <strong>world-class education should never be gated behind a price tag.</strong> All Coding Courses was built with a single mission: to democratize learning and make premium course content accessible to every student, regardless of their financial situation.</p>
+      <p>Your potential shouldn't be limited by your pocket. <strong>Learn freely. Grow endlessly.</strong></p>
+      <div class="about-tags">
+        <span class="about-tag">✦ Free Forever</span>
+        <span class="about-tag">✦ No Sign-Up</span>
+        <span class="about-tag">✦ Community-Driven</span>
+        <span class="about-tag">✦ Curated Quality</span>
+      </div>
+      <p style="margin-top:28px;">Get in Touch — <a href="javascript:void(0)" id="contactTgLink" data-tg="naturoyt" onclick="openTelegramById('contactTgLink')" style="color:var(--accent2);">Contact on Telegram</a></p>
+      <p style="margin-top:6px;font-size:.85rem;">Join our channel for updates &amp; new course drops.</p>
+    </div>
+  </section>
+
+  <!-- ══ FOOTER ══ -->
+  <footer>
+    <p class="footer-copy">© 2026 <strong>All Coding Courses</strong>. Made with care for learners everywhere.</p>
+    <div class="footer-links">
+      <a href="javascript:void(0)" data-tg="naturoyt" onclick="openTelegramById(this)">Telegram</a>
+      <a href="#courses">All Courses</a>
+      <a href="#">Top ↑</a>
+    </div>
+  </footer>
+
+  <!-- ══ CAN'T FIND FLOAT ══ -->
+  <div class="cant-find">
+    <a href="javascript:void(0)" id="cantFindLink" data-tg="coursescode" onclick="openTelegramById('cantFindLink')">
+      <span class="cant-find-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </span>
+      Can't find a course?
+    </a>
+  </div>
+
+  <button class="admin-trigger" onclick="openAdmin()" title="Admin">⚙</button>
+
+  <!-- ══ QUICK PREVIEW MODAL ══ -->
+  <div class="preview-overlay" id="previewModal" onclick="if(event.target===this)closePreview()">
+    <div class="preview-sheet" style="position:relative;">
+      <button class="preview-close" onclick="closePreview()">×</button>
+      <div class="preview-drag-bar"></div>
+      <img id="previewThumb" class="preview-thumb" alt=""/>
+      <div id="previewThumbPh" class="preview-thumb-ph" style="display:none">📚</div>
+      <div id="previewCat" class="preview-cat"></div>
+      <div id="previewTitle" class="preview-title"></div>
+      <div id="previewCreator" class="preview-creator"></div>
+      <div class="preview-actions">
+        <a id="previewJoinBtn" href="#" target="_blank" class="preview-join">🚀 Join for Free</a>
+        <a id="previewWaBtn" href="#" target="_blank" class="preview-wa">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          Share
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ TELEGRAM POPUP ══ -->
+  <div class="overlay" id="tgOverlay">
+    <div class="popup">
+      <button class="popup-close" onclick="closeTgPopup()">×</button>
+      <div class="tg-popup-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+      </div>
+      <h3>Join Our Community</h3>
+      <p>Get instant updates on new course drops, request specific premium courses, and connect with other learners!</p>
+      <a href="javascript:void(0)" id="popupTgBtn" data-tg="naturoyt" onclick="openTelegramById('popupTgBtn')" class="popup-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+        Join Telegram Now
+      </a>
+      <button class="popup-skip" onclick="closeTgPopup()">Maybe Later</button>
+    </div>
+  </div>
+
+  <!-- ══ ADMIN LOGIN (Firebase Auth) ══ -->
+  <div class="modal-overlay" id="adminLoginModal">
+    <div class="modal" style="max-width:400px">
+      <button class="modal-close" onclick="closeAdmin()">×</button>
+      <h2>🔐 Admin Access</h2>
+      <p class="modal-sub">Sign in with your Firebase account</p>
+      <div class="form-group"><label>Email</label><input type="email" id="adminEmail" placeholder="admin@yoursite.com"/></div>
+      <div class="form-group"><label>Password</label><input type="password" id="adminPass" placeholder="Your password" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <button class="submit-btn" onclick="doLogin()">Sign In</button>
+    </div>
+  </div>
+
+  <!-- ══ ADMIN DASHBOARD ══ -->
+  <div class="modal-overlay" id="adminDashModal">
+    <div class="modal" style="max-width:600px;">
+      <button class="modal-close" onclick="closeDash()">×</button>
+      <h2>⚙ Admin Dashboard</h2>
+      <p class="modal-sub">Full control — courses, upcoming, settings, and links</p>
+
+      <div class="admin-tabs">
+        <button class="admin-tab active" onclick="switchAdminTab('add')">➕ Add/Edit</button>
+        <button class="admin-tab" onclick="switchAdminTab('manage')">📋 Courses</button>
+        <button class="admin-tab" onclick="switchAdminTab('upcoming')">🔜 Upcoming</button>
+        <button class="admin-tab" onclick="switchAdminTab('settings')">🔗 Links</button>
+        <button class="admin-tab" onclick="switchAdminTab('announce')">📢 Banner</button>
+        <button class="admin-tab" onclick="switchAdminTab('bulk')">📥 Bulk</button>
+        <button class="admin-tab" onclick="switchAdminTab('requests')">📩 Requests</button>
+        <button class="admin-tab" onclick="switchAdminTab('log')">🕐 Log</button>
+        <button class="admin-tab" onclick="switchAdminTab('account')">👤 Account</button>
+      </div>
+
+      <!-- ADD / EDIT COURSE TAB -->
+      <div class="tab-panel active" id="tabAdd">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">Publish / Edit a Course</h3>
+        <div class="form-group"><label>Course Title *</label><input type="text" id="cTitle" placeholder="e.g. Complete Python Bootcamp"/></div>
+        <div class="form-group">
+          <label>Thumbnail Image</label>
+          <div class="image-upload-tabs">
+            <button class="img-tab active" onclick="switchImgTab('url','c')">🔗 URL</button>
+            <button class="img-tab" onclick="switchImgTab('file','c')">📁 Upload File</button>
+          </div>
+          <div class="img-panel active" id="cImgUrlPanel">
+            <input type="text" id="cImage" placeholder="https://..." oninput="previewImage('cImage','imagePreview')"/>
+          </div>
+          <div class="img-panel" id="cImgFilePanel">
+            <input type="file" id="cImageFile" accept="image/*" onchange="previewFile('cImageFile','imagePreview')"/>
+          </div>
+          <img id="imagePreview" alt="Preview"/>
+        </div>
+        <div class="form-group">
+          <label>Join Link *</label>
+          <div class="shorten-row">
+            <input type="text" id="cLink" placeholder="https://t.me/..."/>
+            <button class="shorten-btn" onclick="fakeShorten()">⚡ Shorten</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="cCat">
+            <option value="Development">Development</option>
+            <option value="AI / ML">AI / ML</option>
+            <option value="Design">Design</option>
+            <option value="Data Science">Data Science</option>
+            <option value="DSA">DSA</option>
+            <option value="Marketing">Marketing</option>
+            <option value="Business">Business</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Institution / Creator</label><input type="text" id="cCreator" placeholder="e.g. Udemy, freeCodeCamp"/></div>
+        <button class="submit-btn" onclick="publishCourse()">🚀 Publish Course</button>
+      </div>
+
+      <!-- MANAGE COURSES TAB -->
+      <div class="tab-panel" id="tabManage">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">All Courses (Edit / Delete)</h3>
+        <div class="manage-list" id="manageList">
+          <p style="color:var(--muted);font-size:.85rem;">Loading…</p>
+        </div>
+      </div>
+
+      <!-- UPCOMING TAB -->
+      <div class="tab-panel" id="tabUpcoming">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:16px;">Upcoming Courses</h3>
+        <div class="settings-section">
+          <h4>⚙ Visibility</h4>
+          <div class="toggle-row">
+            <label>Show "Upcoming Courses" section on site</label>
+            <label class="toggle-switch"><input type="checkbox" id="setShowUpcoming" checked onchange="saveUpcomingVisibility()"/><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="form-group"><label>Course Title *</label><input type="text" id="uTitle" placeholder="e.g. Omega — Full Stack 2026"/></div>
+        <div class="form-group">
+          <label>Thumbnail Image</label>
+          <div class="image-upload-tabs">
+            <button class="img-tab active" onclick="switchImgTab('url','u')">🔗 URL</button>
+            <button class="img-tab" onclick="switchImgTab('file','u')">📁 Upload File</button>
+          </div>
+          <div class="img-panel active" id="uImgUrlPanel"><input type="text" id="uImage" placeholder="https://..." oninput="previewImage('uImage','uImagePreview')"/></div>
+          <div class="img-panel" id="uImgFilePanel"><input type="file" id="uImageFile" accept="image/*" onchange="previewFile('uImageFile','uImagePreview')"/></div>
+          <img id="uImagePreview" alt="Preview"/>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="uCat">
+            <option value="Development">Development</option>
+            <option value="AI / ML">AI / ML</option>
+            <option value="DSA">DSA</option>
+            <option value="Design">Design</option>
+            <option value="Data Science">Data Science</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Creator / Institution</label><input type="text" id="uCreator" placeholder="e.g. Apna College"/></div>
+        <div class="form-group"><label>Expected Date (optional)</label><input type="text" id="uDate" placeholder="e.g. July 2026"/></div>
+        <button class="submit-btn" id="upcomingPublishBtn" onclick="publishUpcoming()">🔜 Add Upcoming Course</button>
+        <h4 style="margin-top:24px;margin-bottom:12px;font-size:.9rem;color:var(--text);">Existing Upcoming Courses</h4>
+        <div class="manage-list" id="upcomingManageList"><p style="color:var(--muted);font-size:.85rem;">No upcoming courses yet.</p></div>
+      </div>
+
+      <!-- LINKS SETTINGS TAB -->
+      <div class="tab-panel" id="tabSettings">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">🔗 Manage Clickable Links</h3>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:18px;">Enter Telegram usernames (without @) for each button/link on the site.</p>
+        <div class="settings-section">
+          <h4>🧭 Nav — "Request Courses" Button</h4>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setNavTg" placeholder="e.g. naturoyt"/></div>
+        </div>
+        <div class="settings-section">
+          <h4>💬 "Can't find a course?" Button</h4>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setCantFind" placeholder="e.g. coursescode"/></div>
+        </div>
+        <div class="settings-section">
+          <h4>📩 About — "Contact on Telegram" Link</h4>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setContactTg" placeholder="e.g. naturoyt"/></div>
+        </div>
+        <div class="settings-section">
+          <h4>✈️ Popup — "Join Telegram Now" Button</h4>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setPopupTg" placeholder="e.g. naturoyt"/></div>
+        </div>
+        <button class="submit-btn" onclick="saveLinksSettings()">💾 Save All Links</button>
+      </div>
+
+      <!-- ANNOUNCEMENT TAB -->
+      <div class="tab-panel" id="tabAnnounce">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">📢 Announcement Banner</h3>
+        <div class="settings-section">
+          <h4>⚙ Banner Control</h4>
+          <div class="toggle-row">
+            <label>Show announcement banner</label>
+            <label class="toggle-switch"><input type="checkbox" id="setAnnEnabled"/><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Announcement Text</label>
+          <textarea id="setAnnText" placeholder="e.g. 🎉 New DSA batch dropping this Friday!"></textarea>
+        </div>
+        <button class="submit-btn" onclick="saveAnnouncementSettings()">💾 Save Announcement</button>
+      </div>
+
+      <!-- BULK IMPORT TAB -->
+      <div class="tab-panel" id="tabBulk">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:16px;">📥 Bulk Import via Google Sheets</h3>
+        <div class="bulk-import-box">
+          <p class="bulk-import-hint">
+            1. Make a Google Sheet with these columns (row 1 = headers):<br>
+            <strong>Course Name | Image URL | Link | Category | Creator</strong><br><br>
+            2. File → Share → "Anyone with the link can view"<br>
+            3. Paste the sheet URL below and click Import.
+          </p>
+          <div class="form-group">
+            <label>Google Sheet URL</label>
+            <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..."/>
+          </div>
+          <button class="submit-btn" id="bulkImportBtn" onclick="bulkImportFromSheet()">📥 Import from Sheet</button>
+          <p id="bulkImportStatus"></p>
+        </div>
+      </div>
+
+      <!-- COURSE REQUESTS TAB -->
+      <div class="tab-panel" id="tabRequests">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:16px;">📩 Student Course Requests</h3>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px;">Requests submitted by students from the public course request form.</p>
+        <div class="manage-list" id="requestsList">
+          <p style="color:var(--muted);font-size:.85rem;">Loading…</p>
+        </div>
+      </div>
+
+      <!-- ACTIVITY LOG TAB -->
+      <div class="tab-panel" id="tabLog">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:16px;">🕐 Admin Activity Log</h3>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px;">Last 50 admin actions recorded automatically.</p>
+        <div style="max-height:360px;overflow-y:auto;" id="activityLogList">
+          <p style="color:var(--muted);font-size:.82rem;">Loading…</p>
+        </div>
+      </div>
+
+      <!-- ACCOUNT TAB -->
+      <div class="tab-panel" id="tabAccount">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:16px;">👤 Admin Account</h3>
+        <div class="settings-section">
+          <h4>🔒 Update Admin Credentials</h4>
+          <p style="font-size:.78rem;color:var(--muted);margin-bottom:14px;">To change your Firebase Auth email/password, update it here as a reference and then also update it in the Firebase Console → Authentication tab for full effect.</p>
+          <div class="form-group"><label>New Email</label><input type="email" id="newAdminEmail" placeholder="new@email.com"/></div>
+          <div class="form-group"><label>New Password</label><input type="password" id="newAdminPass" placeholder="New strong password"/></div>
+          <button class="submit-btn" onclick="updateAdminCredentials()">💾 Save Reference</button>
+        </div>
+        <button class="logout-btn" onclick="doLogout()">🚪 Sign Out</button>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ── THEME ──
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isDark = html.dataset.theme === 'dark';
+      html.dataset.theme = isDark ? 'light' : 'dark';
+      document.getElementById('themeBtn').textContent = isDark ? '☀️' : '🌙';
+      localStorage.setItem('acc-theme', html.dataset.theme);
+    }
+    (function() {
+      const saved = localStorage.getItem('acc-theme');
+      if (saved) {
+        document.documentElement.dataset.theme = saved;
+        document.getElementById('themeBtn').textContent = saved === 'light' ? '☀️' : '🌙';
+      }
+    })();
+
+    // ── ADMIN ──
+    function openAdmin()  { document.getElementById('adminLoginModal').classList.add('show') }
+    function closeAdmin() { document.getElementById('adminLoginModal').classList.remove('show') }
+    function closeDash()  { document.getElementById('adminDashModal').classList.remove('show') }
+
+    function switchAdminTab(tab) {
+      const map = {
+        add:'tabAdd', manage:'tabManage', upcoming:'tabUpcoming',
+        settings:'tabSettings', announce:'tabAnnounce',
+        bulk:'tabBulk', requests:'tabRequests', log:'tabLog', account:'tabAccount'
+      };
+      const keys = Object.keys(map);
+      document.querySelectorAll('.admin-tab').forEach((t, i) => {
+        t.classList.toggle('active', keys[i] === tab);
+      });
+      Object.values(map).forEach(id => document.getElementById(id).classList.remove('active'));
+      document.getElementById(map[tab]).classList.add('active');
+      if (tab === 'manage')   renderManageList();
+      if (tab === 'upcoming') renderUpcomingManageList();
+      if (tab === 'log')      loadActivityLog();
+      if (tab === 'requests') loadRequestsAdmin();
+    }
+    window.switchTab = switchAdminTab;
+
+    // ── IMAGE TABS ──
+    function switchImgTab(type, prefix) {
+      const urlPanel  = document.getElementById(prefix + 'ImgUrlPanel');
+      const filePanel = document.getElementById(prefix + 'ImgFilePanel');
+      const tabs = urlPanel.parentElement.previousElementSibling.querySelectorAll('.img-tab');
+      tabs[0].classList.toggle('active', type === 'url');
+      tabs[1].classList.toggle('active', type === 'file');
+      urlPanel.classList.toggle('active', type === 'url');
+      filePanel.classList.toggle('active', type === 'file');
+    }
+
+    function previewImage(inputId, previewId) {
+      const val = document.getElementById(inputId).value;
+      const img = document.getElementById(previewId);
+      if (val) { img.src = val; img.style.display = 'block'; }
+      else { img.style.display = 'none'; }
+    }
+
+    function previewFile(inputId, previewId) {
+      const file = document.getElementById(inputId).files[0];
+      const img  = document.getElementById(previewId);
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => { img.src = e.target.result; img.style.display = 'block'; };
+      reader.readAsDataURL(file);
+    }
+
+    // ── TOAST ──
+    function showToast(msg, err = false) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.background = err ? '#ef4444' : 'var(--success)';
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+    window.showToast = showToast;
+
+    function fakeShorten() {
+      const inp = document.getElementById('cLink');
+      if (!inp.value) return;
+      showToast('Link shortened ⚡');
+    }
+
+    // ── TELEGRAM ──
+    function openTelegramById(elOrId) {
+      let el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+      const username = el ? el.dataset.tg : null;
+      if (!username) return;
+      window.open('https://t.me/' + username, '_blank');
+      setTimeout(() => { try { window.location.href = 'tg://resolve?domain=' + username } catch(e){} }, 300);
+    }
+
+    // ── POPUP ──
+    function closeTgPopup() { document.getElementById('tgOverlay').classList.remove('show') }
+    setTimeout(() => { document.getElementById('tgOverlay').classList.add('show') }, 4000);
+
+    // ── SCROLL REVEAL ──
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); } });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>
