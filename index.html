@@ -369,46 +369,187 @@
     };
 
     // ── BULK IMPORT via Google Sheets ──
+    // Parse CSV properly handling quoted fields with commas inside
+    function parseCSV(text) {
+      const rows = [];
+      const lines = text.trim().split(/\r?\n/);
+      for (const line of lines) {
+        const cols = [];
+        let cur = '', inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') { inQ = !inQ; }
+          else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+          else { cur += ch; }
+        }
+        cols.push(cur.trim());
+        rows.push(cols);
+      }
+      return rows;
+    }
+
+    // Fix image URL - handle Google Drive, direct URLs etc
+    function fixImageUrl(url) {
+      if (!url) return '';
+      url = url.trim();
+      // Google Drive share link → direct
+      const gdMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+      if (gdMatch) return `https://drive.google.com/uc?export=view&id=${gdMatch[1]}`;
+      // Google Drive open link
+      const gdMatch2 = url.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/);
+      if (gdMatch2) return `https://drive.google.com/uc?export=view&id=${gdMatch2[1]}`;
+      // Already a direct image URL
+      return url;
+    }
+
     window.bulkImportFromSheet = async function() {
       const sheetUrl = document.getElementById('sheetUrl').value.trim();
       if (!sheetUrl) { showToast('Paste a Google Sheet URL', true); return; }
-      // Extract sheet ID
       const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
       if (!match) { showToast('Invalid Google Sheet URL', true); return; }
       const sheetId = match[1];
-      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+      // Try gid param for specific sheet tab
+      const gidMatch = sheetUrl.match(/[#&]gid=(\d+)/);
+      const gid = gidMatch ? gidMatch[1] : '0';
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
       const btn = document.getElementById('bulkImportBtn');
       btn.textContent = 'Importing…'; btn.disabled = true;
       const statusEl = document.getElementById('bulkImportStatus');
-      statusEl.textContent = 'Fetching sheet data…';
+      statusEl.innerHTML = '<span style="color:var(--accent2)">⏳ Fetching sheet data…</span>';
       try {
         const resp = await fetch(csvUrl);
-        if (!resp.ok) throw new Error('Could not fetch sheet. Make sure it is shared publicly.');
+        if (!resp.ok) throw new Error('Could not fetch sheet. Make sure sharing is set to "Anyone with link can view".');
         const csvText = await resp.text();
-        const lines = csvText.trim().split('\n').map(l => l.split(',').map(v => v.trim().replace(/^"|"$/g,'')));
-        if (lines.length < 2) { showToast('Sheet has no data rows', true); statusEl.textContent = ''; return; }
-        // Expected columns: Course Name, Image URL, Link, Category, Creator
-        let added = 0, skipped = 0;
-        for (let i = 1; i < lines.length; i++) {
-          const [title, image, link, category, creator] = lines[i];
-          if (!title || !link) { skipped++; continue; }
-          await addDoc(collection(db, 'courses'), {
-            title, image: image || '', link, category: category || 'Other',
-            creator: creator || '', createdAt: Date.now()
-          });
-          added++;
-          statusEl.textContent = `Importing… ${added} added`;
+        const rows = parseCSV(csvText);
+        if (rows.length < 2) { showToast('Sheet has no data rows', true); statusEl.textContent = ''; return; }
+        // Expected columns: Course Name | Image URL | Link | Category | Creator
+        let added = 0, skipped = 0, errors = [];
+        for (let i = 1; i < rows.length; i++) {
+          const [title='', image='', link='', category='', creator=''] = rows[i];
+          const cleanTitle = title.trim();
+          const cleanLink  = link.trim();
+          if (!cleanTitle || !cleanLink) { skipped++; continue; }
+          try {
+            await addDoc(collection(db, 'courses'), {
+              title: cleanTitle,
+              image: fixImageUrl(image),
+              link: cleanLink,
+              category: category.trim() || 'Other',
+              creator: creator.trim() || '',
+              createdAt: Date.now()
+            });
+            added++;
+            statusEl.innerHTML = `<span style="color:var(--accent2)">⏳ Importing… ${added} added</span>`;
+          } catch(rowErr) {
+            errors.push(cleanTitle);
+          }
         }
         await logActivity('bulk_import', `${added} courses imported from Google Sheet`);
         await loadCourses(); renderManageList();
-        statusEl.textContent = `✅ Done! ${added} courses added, ${skipped} skipped.`;
+        let msg = `✅ Done! <strong>${added}</strong> courses added`;
+        if (skipped) msg += `, ${skipped} skipped (missing title/link)`;
+        if (errors.length) msg += `, ${errors.length} failed`;
+        statusEl.innerHTML = `<span style="color:var(--success)">${msg}</span>`;
         showToast(`${added} courses imported! 🚀`);
         document.getElementById('sheetUrl').value = '';
       } catch(e) {
         showToast('Import error: ' + e.message, true);
-        statusEl.textContent = '❌ ' + e.message;
+        statusEl.innerHTML = `<span style="color:#ef4444">❌ ${e.message}</span>`;
       } finally {
         btn.textContent = '📥 Import from Sheet'; btn.disabled = false;
+      }
+    };
+
+    // ── MANUAL BULK ADD (in-page table) ──
+    window.manualRows = [
+      { title:'', image:'', link:'', category:'Other', creator:'' },
+      { title:'', image:'', link:'', category:'Other', creator:'' },
+      { title:'', image:'', link:'', category:'Other', creator:'' },
+    ];
+
+    window.renderManualTable = function() {
+      const cats = ['Development','AI / ML','Design','Data Science','DSA','Marketing','Business','Other'];
+      const catOpts = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+      const tbody = document.getElementById('manualTbody');
+      tbody.innerHTML = manualRows.map((r, i) => `
+        <tr>
+          <td><input type="text" value="${r.title}" oninput="manualRows[${i}].title=this.value" placeholder="Course title" style="width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:7px;font-size:.82rem;outline:none;"/></td>
+          <td>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <input type="text" value="${r.image}" oninput="manualRows[${i}].image=this.value;updateImgPreview(${i},this.value)" placeholder="Paste image URL or upload" style="flex:1;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:7px;font-size:.82rem;outline:none;"/>
+              <label style="cursor:pointer;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:.75rem;color:var(--muted);white-space:nowrap;" title="Upload image">
+                📁<input type="file" accept="image/*" style="display:none" onchange="uploadManualImg(${i},this)"/>
+              </label>
+            </div>
+            <img id="mimg_${i}" src="${r.image||''}" style="width:60px;height:36px;object-fit:cover;border-radius:5px;margin-top:4px;display:${r.image?'block':'none'};" onerror="this.style.display='none'"/>
+          </td>
+          <td><input type="text" value="${r.link}" oninput="manualRows[${i}].link=this.value" placeholder="https://..." style="width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:7px;font-size:.82rem;outline:none;"/></td>
+          <td><select onchange="manualRows[${i}].category=this.value" style="background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:7px;font-size:.82rem;outline:none;">${catOpts.replace(`value="${r.category}"`,`value="${r.category}" selected`)}</select></td>
+          <td><input type="text" value="${r.creator}" oninput="manualRows[${i}].creator=this.value" placeholder="Creator" style="width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:7px;font-size:.82rem;outline:none;"/></td>
+          <td><button onclick="manualRows.splice(${i},1);renderManualTable()" style="background:none;border:1px solid rgba(239,68,68,.3);color:#ef4444;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:.8rem;">🗑</button></td>
+        </tr>`).join('');
+    };
+
+    window.updateImgPreview = function(i, url) {
+      const img = document.getElementById('mimg_' + i);
+      if (!img) return;
+      if (url) { img.src = fixImageUrl(url); img.style.display = 'block'; }
+      else { img.style.display = 'none'; }
+    };
+
+    window.uploadManualImg = async function(i, input) {
+      const file = input.files[0];
+      if (!file) return;
+      try {
+        const storRef = ref(stor, 'thumbnails/' + Date.now() + '_' + file.name);
+        const snap = await uploadBytes(storRef, file);
+        const url = await getDownloadURL(snap.ref);
+        manualRows[i].image = url;
+        renderManualTable();
+        showToast('Image uploaded ✓');
+      } catch(e) { showToast('Upload error: ' + e.message, true); }
+    };
+
+    window.addManualRow = function() {
+      manualRows.push({ title:'', image:'', link:'', category:'Other', creator:'' });
+      renderManualTable();
+    };
+
+    window.publishManualCourses = async function() {
+      const valid = manualRows.filter(r => r.title.trim() && r.link.trim());
+      if (!valid.length) { showToast('Add at least one course with title and link', true); return; }
+      const btn = document.getElementById('manualPublishBtn');
+      btn.textContent = 'Publishing…'; btn.disabled = true;
+      const statusEl = document.getElementById('manualStatus');
+      let added = 0;
+      try {
+        for (const r of valid) {
+          await addDoc(collection(db, 'courses'), {
+            title: r.title.trim(),
+            image: fixImageUrl(r.image),
+            link: r.link.trim(),
+            category: r.category || 'Other',
+            creator: r.creator.trim() || '',
+            createdAt: Date.now()
+          });
+          added++;
+          statusEl.innerHTML = `<span style="color:var(--accent2)">⏳ Adding… ${added}/${valid.length}</span>`;
+        }
+        await logActivity('manual_bulk', `${added} courses added manually`);
+        await loadCourses(); renderManageList();
+        statusEl.innerHTML = `<span style="color:var(--success)">✅ ${added} courses added!</span>`;
+        showToast(`${added} courses published! 🚀`);
+        manualRows = [
+          { title:'', image:'', link:'', category:'Other', creator:'' },
+          { title:'', image:'', link:'', category:'Other', creator:'' },
+          { title:'', image:'', link:'', category:'Other', creator:'' },
+        ];
+        renderManualTable();
+      } catch(e) {
+        showToast('Error: ' + e.message, true);
+        statusEl.innerHTML = `<span style="color:#ef4444">❌ ${e.message}</span>`;
+      } finally {
+        btn.textContent = '🚀 Publish All'; btn.disabled = false;
       }
     };
 
@@ -912,9 +1053,9 @@
     .popup-skip:hover{color:var(--text)}
 
     /* ══ MODALS ══ */
-    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center;padding:20px}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);z-index:300;display:none;align-items:center;justify-content:center;padding:12px}
     .modal-overlay.show{display:flex}
-    .modal{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:40px;max-width:860px;width:100%;position:relative;max-height:92vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,.6)}
+    .modal{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:32px 36px;max-width:98vw;width:100%;position:relative;max-height:96vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,.7)}
     .modal-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer}
     .modal h2{font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:6px;color:var(--text)}
     .modal-sub{color:var(--muted);font-size:.85rem;margin-bottom:24px}
@@ -1194,7 +1335,7 @@
 
   <!-- ══ ADMIN LOGIN (Firebase Auth) ══ -->
   <div class="modal-overlay" id="adminLoginModal">
-    <div class="modal" style="max-width:400px">
+    <div class="modal" style="max-width:480px">
       <button class="modal-close" onclick="closeAdmin()">×</button>
       <h2>🔐 Admin Access</h2>
       <p class="modal-sub">Sign in with your Firebase account</p>
@@ -1206,7 +1347,7 @@
 
   <!-- ══ ADMIN DASHBOARD ══ -->
   <div class="modal-overlay" id="adminDashModal">
-    <div class="modal" style="max-width:860px;">
+    <div class="modal" style="max-width:98vw;">
       <button class="modal-close" onclick="closeDash()">×</button>
       <h2>⚙ Admin Dashboard</h2>
       <p class="modal-sub">Full control — courses, upcoming, settings, and links</p>
@@ -1392,20 +1533,49 @@
 
       <!-- BULK IMPORT TAB -->
       <div class="tab-panel" id="tabBulk">
-        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:16px;">📥 Bulk Import via Google Sheets</h3>
-        <div class="bulk-import-box">
-          <p class="bulk-import-hint">
-            1. Make a Google Sheet with these columns (row 1 = headers):<br>
-            <strong>Course Name | Image URL | Link | Category | Creator</strong><br><br>
-            2. File → Share → "Anyone with the link can view"<br>
-            3. Paste the sheet URL below and click Import.
-          </p>
-          <div class="form-group">
-            <label>Google Sheet URL</label>
-            <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..."/>
+
+        <!-- SECTION 1: Manual in-page table -->
+        <div class="settings-section" style="margin-bottom:24px;">
+          <h4 style="margin-bottom:14px;">📝 Add Courses Directly Here</h4>
+          <p style="font-size:.78rem;color:var(--muted);margin-bottom:14px;">Fill in the table below. Paste any image URL or upload a file directly. Only Title and Link are required.</p>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                  <th style="padding:8px 10px;text-align:left;color:var(--muted);font-weight:600;min-width:160px;">Course Title *</th>
+                  <th style="padding:8px 10px;text-align:left;color:var(--muted);font-weight:600;min-width:200px;">Image (URL or Upload)</th>
+                  <th style="padding:8px 10px;text-align:left;color:var(--muted);font-weight:600;min-width:160px;">Join Link *</th>
+                  <th style="padding:8px 10px;text-align:left;color:var(--muted);font-weight:600;min-width:120px;">Category</th>
+                  <th style="padding:8px 10px;text-align:left;color:var(--muted);font-weight:600;min-width:120px;">Creator</th>
+                  <th style="padding:8px 10px;width:40px;"></th>
+                </tr>
+              </thead>
+              <tbody id="manualTbody"></tbody>
+            </table>
           </div>
-          <button class="submit-btn" id="bulkImportBtn" onclick="bulkImportFromSheet()">📥 Import from Sheet</button>
-          <p id="bulkImportStatus"></p>
+          <div style="display:flex;gap:10px;margin-top:12px;align-items:center;">
+            <button onclick="addManualRow()" style="background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.82rem;font-family:Inter,sans-serif;">+ Add Row</button>
+            <button class="submit-btn" id="manualPublishBtn" onclick="publishManualCourses()" style="flex:1;margin-top:0;">🚀 Publish All</button>
+          </div>
+          <p id="manualStatus" style="margin-top:8px;font-size:.8rem;min-height:20px;"></p>
+        </div>
+
+        <!-- SECTION 2: Google Sheets import -->
+        <div class="settings-section">
+          <h4 style="margin-bottom:14px;">📊 Import from Google Sheets</h4>
+          <div class="bulk-import-box" style="border:none;padding:0;background:none;">
+            <p class="bulk-import-hint">
+              Make a Google Sheet with these columns (row 1 = headers):<br>
+              <strong>Course Name | Image URL | Link | Category | Creator</strong><br>
+              Share → "Anyone with the link can view" → paste URL below.
+            </p>
+            <div class="form-group">
+              <label>Google Sheet URL</label>
+              <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..."/>
+            </div>
+            <button class="submit-btn" id="bulkImportBtn" onclick="bulkImportFromSheet()">📥 Import from Sheet</button>
+            <p id="bulkImportStatus" style="margin-top:8px;font-size:.8rem;min-height:20px;"></p>
+          </div>
         </div>
       </div>
 
@@ -1480,6 +1650,7 @@
       Object.values(map).forEach(id => document.getElementById(id).classList.remove('active'));
       document.getElementById(map[tab]).classList.add('active');
       if (tab === 'manage')   renderManageList();
+      if (tab === 'bulk')     renderManualTable();
       if (tab === 'upcoming') renderUpcomingManageList();
       if (tab === 'log')      loadActivityLog();
       if (tab === 'requests') loadRequestsAdmin();
