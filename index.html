@@ -162,10 +162,10 @@
       const cantFind  = document.getElementById('cantFindLink');
       const contactTg = document.getElementById('contactTgLink');
       const popupBtn  = document.getElementById('popupTgBtn');
-      if (siteSettings.navTelegramUser)     { tgNav.dataset.tg = siteSettings.navTelegramUser; }
-      if (siteSettings.cantFindUser)        { cantFind.dataset.tg = siteSettings.cantFindUser; }
-      if (siteSettings.contactTelegramUser) { contactTg.dataset.tg = siteSettings.contactTelegramUser; }
-      if (siteSettings.popupTelegramUser)   { popupBtn.dataset.tg = siteSettings.popupTelegramUser; }
+      if (siteSettings.navTelegramUser)     { tgNav.dataset.link = siteSettings.navTelegramUser; }
+      if (siteSettings.cantFindUser)        { cantFind.dataset.link = siteSettings.cantFindUser; }
+      if (siteSettings.contactTelegramUser) { contactTg.dataset.link = siteSettings.contactTelegramUser; }
+      if (siteSettings.popupTelegramUser)   { popupBtn.dataset.link = siteSettings.popupTelegramUser; }
       const upcomingSection = document.getElementById('upcomingSection');
       if (upcomingSection) upcomingSection.style.display = siteSettings.showUpcoming === false ? 'none' : 'block';
     }
@@ -370,7 +370,7 @@
       } catch(e) {
         showToast('Error: ' + e.message, true);
       } finally {
-        btn.textContent = editingCourseId ? '💾 Save Changes' : '🚀 Publish Course';
+        btn.textContent = '🚀 Publish Course';
         btn.disabled = false;
       }
     };
@@ -419,33 +419,22 @@
       }
     };
 
-    // ── EDIT COURSE ──
-    window.editCourse = function(id) {
-      let course;
-      if (id.startsWith('default_')) { course = DEFAULT_COURSES.find(c => c.defaultId === id); }
-      else { course = firebaseCourses.find(c => c.id === id); }
-      if (!course) return;
-      editingCourseId = id;
-      switchAdminTab('add');
-      document.getElementById('cTitle').value   = course.title || '';
-      document.getElementById('cImage').value   = course.image || '';
-      document.getElementById('cLink').value    = course.link  || '';
-      document.getElementById('cCreator').value = course.creator || '';
-      document.getElementById('cCat').value     = course.category || 'Development';
-      const btn = document.querySelector('#tabAdd .submit-btn');
-      btn.textContent = '💾 Save Changes';
-      const preview = document.getElementById('imagePreview');
-      if (course.image) { preview.src = course.image; preview.style.display = 'block'; }
-      showToast('Editing: ' + course.title);
-    };
+    // editCourse moved above
 
     // ── DELETE COURSE ──
     window.deleteCourse = async function(id) {
       if (!confirm('Delete this course?')) return;
       try {
-        const c = firebaseCourses.find(x => x.id === id);
-        if (!id.startsWith('default_')) await deleteDoc(doc(db, 'courses', id));
-        await logActivity('course_deleted', c ? c.title : id);
+        if (id.startsWith('default_')) {
+          // Remove from DEFAULT_COURSES array in memory
+          const idx = DEFAULT_COURSES.findIndex(x => x.defaultId === id);
+          if (idx !== -1) DEFAULT_COURSES.splice(idx, 1);
+          await logActivity('course_deleted', id);
+        } else {
+          const course = firebaseCourses.find(x => x.id === id);
+          await deleteDoc(doc(db, 'courses', id));
+          await logActivity('course_deleted', course ? course.title : id);
+        }
         await loadCourses(); renderManageList();
         showToast('Course removed');
       } catch(e) { showToast('Delete error: ' + e.message, true); }
@@ -468,7 +457,7 @@
           </div>
           <div class="manage-item-actions">
             <button class="manage-edit-btn" onclick="editCourse('${cid}')">✏️</button>
-            ${isDefault ? '' : `<button class="manage-item-del" onclick="deleteCourse('${cid}')">🗑</button>`}
+            <button class="manage-item-del" onclick="deleteCourse('${cid}')">🗑</button>
           </div>
         </div>`;
       }).join('');
@@ -631,6 +620,69 @@
         document.getElementById('newAdminEmail').value = '';
         document.getElementById('newAdminPass').value  = '';
       } catch(e) { showToast('Error: ' + e.message, true); }
+    };
+
+    // ── EDIT COURSE (separate tab) ──
+    window.editCourse = function(id) {
+      let course;
+      if (id.startsWith('default_')) { course = DEFAULT_COURSES.find(c => c.defaultId === id); }
+      else { course = firebaseCourses.find(c => c.id === id); }
+      if (!course) return;
+      editingCourseId = id;
+      switchAdminTab('edit');
+      document.getElementById('eCTitle').value   = course.title || '';
+      document.getElementById('eCImage').value   = course.image || '';
+      document.getElementById('eCLink').value    = course.link  || '';
+      document.getElementById('eCCreator').value = course.creator || '';
+      document.getElementById('eCCat').value     = course.category || 'Development';
+      const preview = document.getElementById('eImagePreview');
+      if (course.image) { preview.src = course.image; preview.style.display = 'block'; }
+      else { preview.style.display = 'none'; }
+      document.getElementById('editNoSelection').style.display = 'none';
+      document.getElementById('editFormWrap').style.display = 'block';
+      showToast('Editing: ' + course.title);
+    };
+
+    window.saveEditedCourse = async function() {
+      const title = document.getElementById('eCTitle').value.trim();
+      const link  = document.getElementById('eCLink').value.trim();
+      if (!title || !link) { showToast('Title and link are required', true); return; }
+      const btn = document.querySelector('#tabEdit .submit-btn');
+      btn.textContent = 'Saving…'; btn.disabled = true;
+      try {
+        const data = {
+          title,
+          image: document.getElementById('eCImage').value.trim(),
+          link,
+          category: document.getElementById('eCCat').value,
+          creator: document.getElementById('eCCreator').value.trim(),
+          createdAt: Date.now()
+        };
+        if (editingCourseId.startsWith('default_')) {
+          const idx = DEFAULT_COURSES.findIndex(x => x.defaultId === editingCourseId);
+          if (idx !== -1) { DEFAULT_COURSES[idx] = { ...DEFAULT_COURSES[idx], ...data }; }
+        } else {
+          await updateDoc(doc(db, 'courses', editingCourseId), data);
+        }
+        await logActivity('course_updated', title);
+        showToast('Course updated ✓');
+        editingCourseId = null;
+        document.getElementById('editNoSelection').style.display = 'block';
+        document.getElementById('editFormWrap').style.display = 'none';
+        await loadCourses(); renderManageList();
+        switchAdminTab('manage');
+      } catch(e) {
+        showToast('Error: ' + e.message, true);
+      } finally {
+        if(btn) { btn.textContent = '💾 Save Changes'; btn.disabled = false; }
+      }
+    };
+
+    window.cancelEdit = function() {
+      editingCourseId = null;
+      document.getElementById('editNoSelection').style.display = 'block';
+      document.getElementById('editFormWrap').style.display = 'none';
+      switchAdminTab('manage');
     };
 
     // ── INIT ──
@@ -848,7 +900,7 @@
     .cant-find a:hover{opacity:.88}
     .cant-find-icon{width:22px;height:22px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center}
     .cant-find-icon svg{width:14px;height:14px}
-    .admin-trigger{position:fixed;bottom:24px;right:24px;z-index:50;background:var(--bg3);border:1px solid var(--border);color:var(--muted);width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;font-size:1rem;transition:all .2s}
+    .admin-trigger{display:none}
     .admin-trigger:hover{border-color:var(--accent);color:var(--text)}
 
     /* ══ TELEGRAM POPUP ══ */
@@ -869,7 +921,7 @@
     /* ══ MODALS ══ */
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center;padding:20px}
     .modal-overlay.show{display:flex}
-    .modal{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:36px;max-width:560px;width:100%;position:relative;max-height:90vh;overflow-y:auto}
+    .modal{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:40px;max-width:860px;width:100%;position:relative;max-height:92vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,.6)}
     .modal-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer}
     .modal h2{font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:6px;color:var(--text)}
     .modal-sub{color:var(--muted);font-size:.85rem;margin-bottom:24px}
@@ -892,8 +944,8 @@
     #imagePreview,#uImagePreview{width:100%;border-radius:8px;margin-top:8px;max-height:140px;object-fit:cover;display:none}
 
     /* ══ ADMIN TABS ══ */
-    .admin-tabs{display:flex;gap:6px;margin-bottom:24px;flex-wrap:wrap}
-    .admin-tab{flex:1;min-width:80px;background:var(--bg2);border:1px solid var(--border);color:var(--muted);padding:9px 6px;cursor:pointer;font-family:'Inter',sans-serif;font-size:.72rem;transition:all .2s;border-radius:8px;font-weight:500;white-space:nowrap}
+    .admin-tabs{display:flex;gap:8px;margin-bottom:28px;flex-wrap:wrap}
+    .admin-tab{flex:1;min-width:90px;background:var(--bg2);border:1px solid var(--border);color:var(--muted);padding:11px 10px;cursor:pointer;font-family:'Inter',sans-serif;font-size:.78rem;transition:all .2s;border-radius:10px;font-weight:600;white-space:nowrap;letter-spacing:.01em}
     .admin-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
     .tab-panel{display:none}
     .tab-panel.active{display:block}
@@ -967,7 +1019,7 @@
 
   <!-- ══ NAV ══ -->
   <nav>
-    <a href="#" class="nav-logo"><span class="logo-k">ACC</span> All Coding Courses</a>
+    <a href="#" class="nav-logo" ondblclick="openAdmin()" title=""><span class="logo-k">ACC</span> All Coding Courses</a>
     <div class="nav-right">
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" id="themeBtn">🌙</button>
       <button class="nav-btn" id="navTgLink" data-tg="naturoyt" onclick="openTelegramById('navTgLink')">Request Courses</button>
@@ -1161,13 +1213,14 @@
 
   <!-- ══ ADMIN DASHBOARD ══ -->
   <div class="modal-overlay" id="adminDashModal">
-    <div class="modal" style="max-width:600px;">
+    <div class="modal" style="max-width:860px;">
       <button class="modal-close" onclick="closeDash()">×</button>
       <h2>⚙ Admin Dashboard</h2>
       <p class="modal-sub">Full control — courses, upcoming, settings, and links</p>
 
       <div class="admin-tabs">
-        <button class="admin-tab active" onclick="switchAdminTab('add')">➕ Add/Edit</button>
+        <button class="admin-tab active" onclick="switchAdminTab('add')">➕ Add</button>
+        <button class="admin-tab" onclick="switchAdminTab('edit')">✏️ Edit</button>
         <button class="admin-tab" onclick="switchAdminTab('manage')">📋 Courses</button>
         <button class="admin-tab" onclick="switchAdminTab('upcoming')">🔜 Upcoming</button>
         <button class="admin-tab" onclick="switchAdminTab('settings')">🔗 Links</button>
@@ -1220,6 +1273,43 @@
         <button class="submit-btn" onclick="publishCourse()">🚀 Publish Course</button>
       </div>
 
+      <!-- EDIT COURSE TAB -->
+      <div class="tab-panel" id="tabEdit">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">✏️ Edit a Course</h3>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px;">Select a course from the Courses tab to edit it. Fields will auto-fill here.</p>
+        <div id="editNoSelection" style="text-align:center;padding:40px 0;color:var(--muted);font-size:.9rem;">← Go to <strong style="color:var(--accent2);">Courses</strong> tab and click ✏️ on any course to edit it here.</div>
+        <div id="editFormWrap" style="display:none;">
+          <div class="form-group"><label>Course Title *</label><input type="text" id="eCTitle" placeholder="e.g. Complete Python Bootcamp"/></div>
+          <div class="form-group">
+            <label>Thumbnail Image URL</label>
+            <input type="text" id="eCImage" placeholder="https://..." oninput="previewImage('eCImage','eImagePreview')"/>
+            <img id="eImagePreview" alt="Preview" style="width:100%;border-radius:8px;margin-top:8px;max-height:140px;object-fit:cover;display:none"/>
+          </div>
+          <div class="form-group">
+            <label>Join Link *</label>
+            <input type="text" id="eCLink" placeholder="https://t.me/..."/>
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="eCCat">
+              <option value="Development">Development</option>
+              <option value="AI / ML">AI / ML</option>
+              <option value="Design">Design</option>
+              <option value="Data Science">Data Science</option>
+              <option value="DSA">DSA</option>
+              <option value="Marketing">Marketing</option>
+              <option value="Business">Business</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Institution / Creator</label><input type="text" id="eCCreator" placeholder="e.g. Apna College"/></div>
+          <div style="display:flex;gap:10px;">
+            <button class="submit-btn" onclick="saveEditedCourse()" style="flex:1;">💾 Save Changes</button>
+            <button class="submit-btn" onclick="cancelEdit()" style="flex:0 0 auto;width:auto;padding:13px 20px;background:var(--bg2);color:var(--muted);border:1px solid var(--border);">✕ Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <!-- MANAGE COURSES TAB -->
       <div class="tab-panel" id="tabManage">
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">All Courses (Edit / Delete)</h3>
@@ -1270,22 +1360,22 @@
       <!-- LINKS SETTINGS TAB -->
       <div class="tab-panel" id="tabSettings">
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">🔗 Manage Clickable Links</h3>
-        <p style="font-size:.82rem;color:var(--muted);margin-bottom:18px;">Enter Telegram usernames (without @) for each button/link on the site.</p>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:18px;">Enter a full URL (https://...) or a Telegram username (without @) for each button/link.</p>
         <div class="settings-section">
           <h4>🧭 Nav — "Request Courses" Button</h4>
-          <div class="form-group"><label>Telegram Username</label><input type="text" id="setNavTg" placeholder="e.g. naturoyt"/></div>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setNavTg" placeholder="e.g. https://t.me/naturoyt or naturoyt"/></div>
         </div>
         <div class="settings-section">
           <h4>💬 "Can't find a course?" Button</h4>
-          <div class="form-group"><label>Telegram Username</label><input type="text" id="setCantFind" placeholder="e.g. coursescode"/></div>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setCantFind" placeholder="e.g. https://t.me/coursescode or coursescode"/></div>
         </div>
         <div class="settings-section">
           <h4>📩 About — "Contact on Telegram" Link</h4>
-          <div class="form-group"><label>Telegram Username</label><input type="text" id="setContactTg" placeholder="e.g. naturoyt"/></div>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setContactTg" placeholder="e.g. https://t.me/naturoyt or naturoyt"/></div>
         </div>
         <div class="settings-section">
           <h4>✈️ Popup — "Join Telegram Now" Button</h4>
-          <div class="form-group"><label>Telegram Username</label><input type="text" id="setPopupTg" placeholder="e.g. naturoyt"/></div>
+          <div class="form-group"><label>Telegram Username</label><input type="text" id="setPopupTg" placeholder="e.g. https://t.me/naturoyt or naturoyt"/></div>
         </div>
         <button class="submit-btn" onclick="saveLinksSettings()">💾 Save All Links</button>
       </div>
@@ -1386,7 +1476,7 @@
 
     function switchAdminTab(tab) {
       const map = {
-        add:'tabAdd', manage:'tabManage', upcoming:'tabUpcoming',
+        add:'tabAdd', edit:'tabEdit', manage:'tabManage', upcoming:'tabUpcoming',
         settings:'tabSettings', announce:'tabAnnounce',
         bulk:'tabBulk', requests:'tabRequests', log:'tabLog', account:'tabAccount'
       };
@@ -1446,13 +1536,20 @@
       showToast('Link shortened ⚡');
     }
 
-    // ── TELEGRAM ──
+    // ── UNIVERSAL LINK OPENER ──
     function openTelegramById(elOrId) {
       let el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
-      const username = el ? el.dataset.tg : null;
-      if (!username) return;
-      window.open('https://t.me/' + username, '_blank');
-      setTimeout(() => { try { window.location.href = 'tg://resolve?domain=' + username } catch(e){} }, 300);
+      // Support both old data-tg and new data-link
+      const link = el ? (el.dataset.link || el.dataset.tg) : null;
+      if (!link) return;
+      // If it looks like a full URL, open directly
+      if (link.startsWith('http://') || link.startsWith('https://') || link.startsWith('//')) {
+        window.open(link, '_blank');
+      } else {
+        // Treat as telegram username
+        window.open('https://t.me/' + link, '_blank');
+        setTimeout(() => { try { window.location.href = 'tg://resolve?domain=' + link } catch(e){} }, 300);
+      }
     }
 
     // ── POPUP ──
