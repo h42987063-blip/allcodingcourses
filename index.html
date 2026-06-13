@@ -342,7 +342,7 @@
           const snap = await uploadBytes(storRef, file);
           imageUrl = await getDownloadURL(snap.ref);
         }
-        const data = { title, image: imageUrl, link, category: document.getElementById('cCat').value, creator: document.getElementById('cCreator').value.trim(), createdAt: Date.now() };
+        const data = { title, image: imageUrl, link, category: getCategory('cCat','cCustomCat'), creator: document.getElementById('cCreator').value.trim(), createdAt: Date.now() };
         if (editingCourseId && !editingCourseId.startsWith('default_')) {
           await updateDoc(doc(db, 'courses', editingCourseId), data);
           await logActivity('course_updated', title);
@@ -578,20 +578,23 @@
     window.renderManageList = function() {
       const el = document.getElementById('manageList');
       const allManaged = [...firebaseCourses, ...DEFAULT_COURSES];
-      if (!allManaged.length) { el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">No courses yet.</p>'; return; }
+      const countEl = document.getElementById('manageCount'); if(countEl) countEl.textContent = allManaged.length + ' courses';
+      if (!allManaged.length) { el.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--muted);">📚 No courses yet. Add some from the Add tab!</div>'; return; }
       el.innerHTML = allManaged.map(c => {
         const cid = c.id || c.defaultId;
-        const isDefault = !!c.isDefault;
         return `
-        <div class="manage-item">
-          ${c.image ? `<img class="manage-thumb" src="${c.image}" alt="" onerror="this.style.display='none'"/>` : '<div class="manage-thumb-ph">📚</div>'}
-          <div class="manage-item-info">
-            <span class="manage-item-title">${c.title}</span>
-            <span class="manage-item-cat">${c.category}</span>
+        <div class="manage-card">
+          <div class="manage-card-drag">⠿</div>
+          <div class="manage-card-img">
+            ${c.image ? `<img src="${c.image}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"/><div style="display:none;width:100%;height:100%;background:var(--bg2);border-radius:8px;place-items:center;font-size:1.4rem;">📚</div>` : `<div style="width:100%;height:100%;background:var(--bg2);border-radius:8px;display:grid;place-items:center;font-size:1.4rem;">📚</div>`}
           </div>
-          <div class="manage-item-actions">
-            <button class="manage-edit-btn" onclick="editCourse('${cid}')">✏️</button>
-            <button class="manage-item-del" onclick="deleteCourse('${cid}')">🗑</button>
+          <div class="manage-card-info">
+            <div class="manage-card-title">${c.title}</div>
+            <div class="manage-card-cat">${c.category}${c.creator ? ' · ' + c.creator : ''}</div>
+          </div>
+          <div class="manage-card-actions">
+            <button class="manage-card-edit" onclick="editCourse('${cid}')">✏️ Edit</button>
+            <button class="manage-card-del" onclick="deleteCourse('${cid}')">🗑️ Delete</button>
           </div>
         </div>`;
       }).join('');
@@ -788,7 +791,7 @@
           title,
           image: document.getElementById('eCImage').value.trim(),
           link,
-          category: document.getElementById('eCCat').value,
+          category: getCategory('eCCat','eCCustomCat'),
           creator: document.getElementById('eCCreator').value.trim(),
           createdAt: Date.now()
         };
@@ -863,6 +866,7 @@
 
   <style>
     /* ══ THEME VARIABLES ══ */
+    /* Dark Purple (default) */
     :root[data-theme="dark"] {
       --bg:#0a0a0f; --bg2:#111118; --bg3:#1a1a24;
       --border:rgba(255,255,255,0.07);
@@ -870,11 +874,12 @@
       --accent-glow:rgba(124,92,252,0.25);
       --text:#f0f0f8; --muted:#888899;
       --card-bg:#13131c; --success:#22c55e;
-      --shadow:rgba(0,0,0,0.4);
-      --input-bg:#0e0e17;
-      --announcement-bg: linear-gradient(90deg, #7c5cfc22, #a78bfa22);
-      --announcement-border: rgba(124,92,252,0.3);
+      --shadow:rgba(0,0,0,0.4); --input-bg:#0e0e17;
+      --announcement-bg:linear-gradient(90deg,#7c5cfc22,#a78bfa22);
+      --announcement-border:rgba(124,92,252,0.3);
+      --admin-bg:#0d0d18; --admin-header:linear-gradient(135deg,#7c5cfc,#a78bfa);
     }
+    /* Light Warm */
     :root[data-theme="light"] {
       --bg:#f5f0e8; --bg2:#ede8df; --bg3:#ffffff;
       --border:rgba(0,0,0,0.1);
@@ -882,11 +887,180 @@
       --accent-glow:rgba(200,134,10,0.2);
       --text:#1a1208; --muted:#7a6a50;
       --card-bg:#ffffff; --success:#22c55e;
-      --shadow:rgba(0,0,0,0.12);
-      --input-bg:#f0ece3;
-      --announcement-bg: linear-gradient(90deg, #c8860a22, #e0a02022);
-      --announcement-border: rgba(200,134,10,0.35);
+      --shadow:rgba(0,0,0,0.12); --input-bg:#f0ece3;
+      --announcement-bg:linear-gradient(90deg,#c8860a22,#e0a02022);
+      --announcement-border:rgba(200,134,10,0.35);
+      --admin-bg:#faf7f2; --admin-header:linear-gradient(135deg,#c8860a,#e0a020);
     }
+    /* Midnight Blue */
+    :root[data-theme="midnight"] {
+      --bg:#050d1a; --bg2:#0a1628; --bg3:#0f2040;
+      --border:rgba(100,180,255,0.1);
+      --accent:#3b82f6; --accent2:#60a5fa;
+      --accent-glow:rgba(59,130,246,0.25);
+      --text:#e8f4ff; --muted:#6b8caa;
+      --card-bg:#0a1830; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#071020;
+      --announcement-bg:linear-gradient(90deg,#3b82f622,#60a5fa22);
+      --announcement-border:rgba(59,130,246,0.3);
+      --admin-bg:#050e1f; --admin-header:linear-gradient(135deg,#1d4ed8,#3b82f6);
+    }
+    /* Forest Green */
+    :root[data-theme="forest"] {
+      --bg:#050f08; --bg2:#0a1a0e; --bg3:#0f2414;
+      --border:rgba(100,220,130,0.1);
+      --accent:#16a34a; --accent2:#4ade80;
+      --accent-glow:rgba(22,163,74,0.25);
+      --text:#e8ffe8; --muted:#5a8a6a;
+      --card-bg:#0a1a0e; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#071009;
+      --announcement-bg:linear-gradient(90deg,#16a34a22,#4ade8022);
+      --announcement-border:rgba(22,163,74,0.3);
+      --admin-bg:#050f07; --admin-header:linear-gradient(135deg,#15803d,#16a34a);
+    }
+    /* Sunset Orange */
+    :root[data-theme="sunset"] {
+      --bg:#0f0800; --bg2:#1a1000; --bg3:#241800;
+      --border:rgba(255,150,50,0.1);
+      --accent:#ea580c; --accent2:#fb923c;
+      --accent-glow:rgba(234,88,12,0.25);
+      --text:#fff8f0; --muted:#a07050;
+      --card-bg:#1a1000; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#0f0800;
+      --announcement-bg:linear-gradient(90deg,#ea580c22,#fb923c22);
+      --announcement-border:rgba(234,88,12,0.3);
+      --admin-bg:#0f0800; --admin-header:linear-gradient(135deg,#c2410c,#ea580c);
+    }
+    /* Rose Pink */
+    :root[data-theme="rose"] {
+      --bg:#0f0508; --bg2:#1a0a10; --bg3:#240f18;
+      --border:rgba(255,100,150,0.1);
+      --accent:#e11d48; --accent2:#fb7185;
+      --accent-glow:rgba(225,29,72,0.25);
+      --text:#fff0f4; --muted:#a06070;
+      --card-bg:#1a0a10; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#0f0508;
+      --announcement-bg:linear-gradient(90deg,#e11d4822,#fb718522);
+      --announcement-border:rgba(225,29,72,0.3);
+      --admin-bg:#0f0508; --admin-header:linear-gradient(135deg,#be123c,#e11d48);
+    }
+
+    /* Cyberpunk Yellow */
+    :root[data-theme="cyberpunk"] {
+      --bg:#0a0800; --bg2:#141000; --bg3:#1e1800;
+      --border:rgba(255,220,0,0.12);
+      --accent:#eab308; --accent2:#fde047;
+      --accent-glow:rgba(234,179,8,0.25);
+      --text:#fffde8; --muted:#9a8a40;
+      --card-bg:#141000; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#0a0800;
+      --announcement-bg:linear-gradient(90deg,#eab30822,#fde04722);
+      --announcement-border:rgba(234,179,8,0.3);
+      --admin-bg:#0a0800; --admin-header:linear-gradient(135deg,#a16207,#eab308);
+    }
+    /* Arctic White */
+    :root[data-theme="arctic"] {
+      --bg:#f0f4f8; --bg2:#e2e8f0; --bg3:#ffffff;
+      --border:rgba(0,0,0,0.08);
+      --accent:#0ea5e9; --accent2:#38bdf8;
+      --accent-glow:rgba(14,165,233,0.2);
+      --text:#0f172a; --muted:#64748b;
+      --card-bg:#ffffff; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.1); --input-bg:#f8fafc;
+      --announcement-bg:linear-gradient(90deg,#0ea5e922,#38bdf822);
+      --announcement-border:rgba(14,165,233,0.3);
+      --admin-bg:#f0f4f8; --admin-header:linear-gradient(135deg,#0284c7,#0ea5e9);
+    }
+    /* Lavender Dream */
+    :root[data-theme="lavender"] {
+      --bg:#0d0a1a; --bg2:#140f24; --bg3:#1e1830;
+      --border:rgba(180,140,255,0.1);
+      --accent:#8b5cf6; --accent2:#c4b5fd;
+      --accent-glow:rgba(139,92,246,0.25);
+      --text:#f5f0ff; --muted:#7a6a99;
+      --card-bg:#14102a; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#0d0a18;
+      --announcement-bg:linear-gradient(90deg,#8b5cf622,#c4b5fd22);
+      --announcement-border:rgba(139,92,246,0.3);
+      --admin-bg:#0d0a18; --admin-header:linear-gradient(135deg,#6d28d9,#8b5cf6);
+    }
+    /* Coffee Brown */
+    :root[data-theme="coffee"] {
+      --bg:#120a04; --bg2:#1e1108; --bg3:#2a180c;
+      --border:rgba(180,120,60,0.12);
+      --accent:#92400e; --accent2:#d97706;
+      --accent-glow:rgba(146,64,14,0.25);
+      --text:#fdf6ee; --muted:#8a6a4a;
+      --card-bg:#1e1108; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#120a04;
+      --announcement-bg:linear-gradient(90deg,#92400e22,#d9770622);
+      --announcement-border:rgba(146,64,14,0.3);
+      --admin-bg:#120a04; --admin-header:linear-gradient(135deg,#78350f,#92400e);
+    }
+
+    /* Cyber Teal */
+    :root[data-theme="cyber"] {
+      --bg:#020c10; --bg2:#041820; --bg3:#062030;
+      --border:rgba(0,255,200,0.1);
+      --accent:#06b6d4; --accent2:#22d3ee;
+      --accent-glow:rgba(6,182,212,0.25);
+      --text:#e0ffff; --muted:#4a8090;
+      --card-bg:#041820; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.5); --input-bg:#021018;
+      --announcement-bg:linear-gradient(90deg,#06b6d422,#22d3ee22);
+      --announcement-border:rgba(6,182,212,0.3);
+      --admin-bg:#020c10; --admin-header:linear-gradient(135deg,#0e7490,#06b6d4);
+    }
+    /* Galaxy */
+    :root[data-theme="galaxy"] {
+      --bg:#06020f; --bg2:#0d0520; --bg3:#150a2e;
+      --border:rgba(200,150,255,0.1);
+      --accent:#9333ea; --accent2:#c084fc;
+      --accent-glow:rgba(147,51,234,0.25);
+      --text:#f5e8ff; --muted:#7050a0;
+      --card-bg:#0d0520; --success:#22c55e;
+      --shadow:rgba(0,0,0,0.6); --input-bg:#06020f;
+      --announcement-bg:linear-gradient(90deg,#9333ea22,#c084fc22);
+      --announcement-border:rgba(147,51,234,0.3);
+      --admin-bg:#06020f; --admin-header:linear-gradient(135deg,#6b21a8,#9333ea);
+    }
+    /* Arctic White */
+    :root[data-theme="arctic"] {
+      --bg:#f0f4f8; --bg2:#e2eaf2; --bg3:#ffffff;
+      --border:rgba(0,0,0,0.08);
+      --accent:#0284c7; --accent2:#38bdf8;
+      --accent-glow:rgba(2,132,199,0.15);
+      --text:#0c1a2e; --muted:#6080a0;
+      --card-bg:#ffffff; --success:#16a34a;
+      --shadow:rgba(0,0,0,0.1); --input-bg:#e8f0f8;
+      --announcement-bg:linear-gradient(90deg,#0284c722,#38bdf822);
+      --announcement-border:rgba(2,132,199,0.3);
+      --admin-bg:#f0f4f8; --admin-header:linear-gradient(135deg,#0369a1,#0284c7);
+    }
+    /* Dracula */
+    :root[data-theme="dracula"] {
+      --bg:#282a36; --bg2:#1e2029; --bg3:#343746;
+      --border:rgba(255,255,255,0.08);
+      --accent:#ff79c6; --accent2:#bd93f9;
+      --accent-glow:rgba(255,121,198,0.2);
+      --text:#f8f8f2; --muted:#6272a4;
+      --card-bg:#1e2029; --success:#50fa7b;
+      --shadow:rgba(0,0,0,0.4); --input-bg:#21222c;
+      --announcement-bg:linear-gradient(90deg,#ff79c622,#bd93f922);
+      --announcement-border:rgba(255,121,198,0.3);
+      --admin-bg:#21222c; --admin-header:linear-gradient(135deg,#bd93f9,#ff79c6);
+    }
+
+    /* ══ THEME SWITCHER WIDGET ══ */
+    .theme-panel{position:fixed;bottom:80px;right:20px;z-index:150;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:14px;box-shadow:0 8px 40px var(--shadow);display:none;flex-direction:column;gap:8px;min-width:180px}
+    .theme-panel.open{display:flex}
+    .theme-panel-title{font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;}
+    .theme-option{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer;border:1px solid transparent;transition:all .2s;font-size:.82rem;font-weight:500;color:var(--text);}
+    .theme-option:hover{background:var(--bg2);border-color:var(--border);}
+    .theme-option.active{border-color:var(--accent);background:var(--accent-glow);}
+    .theme-dot{width:16px;height:16px;border-radius:50%;flex-shrink:0;}
+    .theme-fab{position:fixed;bottom:24px;right:24px;z-index:151;width:46px;height:46px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-size:1.2rem;display:grid;place-items:center;cursor:pointer;box-shadow:0 4px 20px var(--shadow);transition:all .2s;}
+    .theme-fab:hover{border-color:var(--accent);transform:scale(1.08);}
 
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     html{scroll-behavior:smooth}
@@ -1077,10 +1251,17 @@
     .img-panel.active{display:block}
     #imagePreview,#uImagePreview{width:100%;border-radius:8px;margin-top:8px;max-height:140px;object-fit:cover;display:none}
 
-    /* ══ ADMIN TABS ══ */
-    .admin-tabs{display:flex;gap:8px;margin-bottom:28px;flex-wrap:wrap}
-    .admin-tab{flex:1;min-width:90px;background:var(--bg2);border:1px solid var(--border);color:var(--muted);padding:11px 10px;cursor:pointer;font-family:'Inter',sans-serif;font-size:.78rem;transition:all .2s;border-radius:10px;font-weight:600;white-space:nowrap;letter-spacing:.01em}
-    .admin-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    /* ══ ADMIN PANEL ══ */
+    #adminDashModal .modal{background:var(--admin-bg,var(--bg3));border:1px solid var(--border);}
+    .admin-header-bar{background:var(--admin-header,var(--accent));border-radius:14px;padding:18px 22px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;}
+    .admin-header-bar h2{color:#fff !important;margin:0;font-size:1.2rem;display:flex;align-items:center;gap:10px;}
+    .admin-header-bar p{color:rgba(255,255,255,.75);font-size:.8rem;margin:4px 0 0;}
+    .admin-header-right{display:flex;gap:8px;align-items:center;}
+    .admin-tabs{display:flex;gap:6px;margin-bottom:22px;flex-wrap:wrap;background:var(--bg2);border-radius:12px;padding:6px;}
+    .admin-tab{flex:1;min-width:80px;background:transparent;border:none;color:var(--muted);padding:9px 8px;cursor:pointer;font-family:'Inter',sans-serif;font-size:.74rem;transition:all .2s;border-radius:8px;font-weight:600;white-space:nowrap;}
+    .admin-tab:hover{color:var(--text);background:var(--bg3);}
+    .admin-tab.active{background:var(--accent);color:#fff;box-shadow:0 2px 12px var(--accent-glow);}
+    .tab-section-title{font-family:'Space Grotesk',sans-serif;font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:18px;display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border);}
     .tab-panel{display:none}
     .tab-panel.active{display:block}
     .manage-list,.manage-upcoming-list{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
@@ -1109,6 +1290,38 @@
     .toggle-switch input:checked + .toggle-slider{background:var(--accent)}
     .toggle-switch input:checked + .toggle-slider::before{transform:translateX(20px)}
 
+    /* ══ MANAGE CARDS (like image 2) ══ */
+    .manage-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:var(--bg3);border:1px solid var(--border);margin-bottom:10px;transition:box-shadow .2s;}
+    .manage-card:hover{box-shadow:0 4px 20px var(--shadow);}
+    .manage-card-drag{color:var(--muted);font-size:1.1rem;cursor:grab;flex-shrink:0;opacity:.5;}
+    .manage-card-img{width:64px;height:44px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--bg2);display:grid;place-items:center;}
+    .manage-card-img img{width:100%;height:100%;object-fit:cover;}
+    .manage-card-info{flex:1;min-width:0;}
+    .manage-card-title{font-size:.9rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .manage-card-cat{font-size:.75rem;color:var(--accent2);margin-top:2px;font-weight:500;}
+    .manage-card-actions{display:flex;gap:8px;flex-shrink:0;}
+    .manage-card-edit{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.8rem;font-weight:600;font-family:Inter,sans-serif;transition:all .2s;display:flex;align-items:center;gap:5px;}
+    .manage-card-edit:hover{border-color:var(--accent);color:var(--accent);}
+    .manage-card-del{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);color:#ef4444;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.8rem;font-weight:600;font-family:Inter,sans-serif;transition:all .2s;display:flex;align-items:center;gap:5px;}
+    .manage-card-del:hover{background:rgba(239,68,68,.18);}
+    .manage-tab-bar{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;}
+    .manage-tab-btn{padding:10px 20px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.88rem;font-weight:600;font-family:Inter,sans-serif;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s;}
+    .manage-tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+    .manage-courses-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+    .manage-count-badge{background:var(--bg2);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:999px;font-size:.75rem;font-weight:600;}
+
+    /* ══ PASTE ZONE ══ */
+    .paste-zone{border:2px dashed var(--border);border-radius:12px;padding:28px 20px;text-align:center;cursor:pointer;transition:all .2s;outline:none;background:var(--input-bg);}
+    .paste-zone:focus,.paste-zone:hover{border-color:var(--accent);background:var(--accent-glow);}
+
+    /* ══ THEME CARDS ══ */
+    .theme-card{background:var(--bg2);border:2px solid var(--border);border-radius:14px;overflow:hidden;cursor:pointer;transition:all .2s;}
+    .theme-card:hover{border-color:var(--accent);transform:translateY(-2px);}
+    .theme-card.active-theme{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+    .theme-card-preview{height:70px;width:100%;}
+    .theme-card-name{font-size:.85rem;font-weight:700;color:var(--text);padding:10px 12px 2px;}
+    .theme-card-desc{font-size:.72rem;color:var(--muted);padding:0 12px 10px;line-height:1.4;}
+
     /* ══ ACTIVITY LOG ══ */
     .log-item{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);margin-bottom:6px}
     .log-action{font-size:.78rem;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:.06em}
@@ -1124,6 +1337,24 @@
     /* ══ LOGOUT BTN ══ */
     .logout-btn{background:none;border:1px solid rgba(239,68,68,.3);color:#ef4444;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:.78rem;font-family:'Inter',sans-serif;margin-left:auto;display:block;margin-top:12px}
     .logout-btn:hover{background:rgba(239,68,68,.1)}
+
+    /* ══ MANAGE CARDS (new design) ══ */
+    .manage-card-list{display:flex;flex-direction:column;gap:10px;max-height:480px;overflow-y:auto;padding-right:4px;}
+    .manage-card-list::-webkit-scrollbar{width:4px;}
+    .manage-card-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+    .manage-card{display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:12px;background:var(--bg2);border:1px solid var(--border);transition:border-color .2s;}
+    .manage-card:hover{border-color:var(--accent);}
+    .manage-card-drag{color:var(--muted);font-size:1.1rem;cursor:grab;flex-shrink:0;opacity:.5;}
+    .manage-card-img{width:60px;height:38px;flex-shrink:0;border-radius:8px;overflow:hidden;}
+    .manage-card-img img{width:100%;height:100%;object-fit:cover;border-radius:8px;}
+    .manage-card-info{flex:1;min-width:0;}
+    .manage-card-title{font-size:.88rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .manage-card-cat{font-size:.72rem;color:var(--muted);margin-top:2px;}
+    .manage-card-actions{display:flex;gap:8px;flex-shrink:0;}
+    .manage-card-edit{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:Inter,sans-serif;transition:all .2s;display:flex;align-items:center;gap:4px;}
+    .manage-card-edit:hover{border-color:var(--accent);color:var(--accent);}
+    .manage-card-del{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);color:#ef4444;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:Inter,sans-serif;transition:all .2s;display:flex;align-items:center;gap:4px;}
+    .manage-card-del:hover{background:rgba(239,68,68,.18);}
 
     /* ══ TOAST ══ */
     .toast{position:fixed;bottom:80px;right:24px;z-index:999;background:var(--success);color:#fff;padding:12px 20px;border-radius:10px;font-size:.85rem;font-weight:600;opacity:0;pointer-events:none;transform:translateY(10px);transition:all .3s}
@@ -1298,7 +1529,22 @@
     </a>
   </div>
 
-  <button class="admin-trigger" onclick="openAdmin()" title="Admin">⚙</button>
+  <!-- ══ THEME FAB ══ -->
+  <button class="theme-fab" onclick="toggleThemePanel()" title="Change Theme">🎨</button>
+  <div class="theme-panel" id="themePanel">
+    <div class="theme-panel-title">Choose Theme</div>
+    <div class="theme-option" onclick="setTheme('dark')" data-t="dark"><span class="theme-dot" style="background:linear-gradient(135deg,#7c5cfc,#a78bfa)"></span>🌙 Dark Purple</div>
+    <div class="theme-option" onclick="setTheme('light')" data-t="light"><span class="theme-dot" style="background:linear-gradient(135deg,#c8860a,#e0a020)"></span>☀️ Light Warm</div>
+    <div class="theme-option" onclick="setTheme('midnight')" data-t="midnight"><span class="theme-dot" style="background:linear-gradient(135deg,#1d4ed8,#3b82f6)"></span>🌊 Midnight Blue</div>
+    <div class="theme-option" onclick="setTheme('forest')" data-t="forest"><span class="theme-dot" style="background:linear-gradient(135deg,#15803d,#4ade80)"></span>🌲 Forest Green</div>
+    <div class="theme-option" onclick="setTheme('sunset')" data-t="sunset"><span class="theme-dot" style="background:linear-gradient(135deg,#c2410c,#fb923c)"></span>🌅 Sunset Orange</div>
+    <div class="theme-option" onclick="setTheme('rose')" data-t="rose"><span class="theme-dot" style="background:linear-gradient(135deg,#be123c,#fb7185)"></span>🌸 Rose Pink</div>
+    <div class="theme-option" onclick="setTheme('cyberpunk')" data-t="cyberpunk"><span class="theme-dot" style="background:linear-gradient(135deg,#a16207,#eab308)"></span>⚡ Cyberpunk</div>
+    <div class="theme-option" onclick="setTheme('arctic')" data-t="arctic"><span class="theme-dot" style="background:linear-gradient(135deg,#0284c7,#38bdf8)"></span>🧊 Arctic</div>
+    <div class="theme-option" onclick="setTheme('lavender')" data-t="lavender"><span class="theme-dot" style="background:linear-gradient(135deg,#6d28d9,#c4b5fd)"></span>💜 Lavender</div>
+    <div class="theme-option" onclick="setTheme('coffee')" data-t="coffee"><span class="theme-dot" style="background:linear-gradient(135deg,#78350f,#d97706)"></span>☕ Coffee</div>
+  </div>
+  <button class="admin-trigger" onclick="openAdmin()" title="Admin" style="display:none;">⚙</button>
 
   <!-- ══ QUICK PREVIEW MODAL ══ -->
   <div class="preview-overlay" id="previewModal" onclick="if(event.target===this)closePreview()">
@@ -1316,8 +1562,8 @@
     </div>
   </div>
 
-  <!-- ══ TELEGRAM POPUP ══ -->
-  <div class="overlay" id="tgOverlay">
+  <!-- ══ TELEGRAM POPUP (hidden) ══ -->
+  <div class="overlay" id="tgOverlay" style="display:none!important;">
     <div class="popup">
       <button class="popup-close" onclick="closeTgPopup()">×</button>
       <div class="tg-popup-icon">
@@ -1348,9 +1594,15 @@
   <!-- ══ ADMIN DASHBOARD ══ -->
   <div class="modal-overlay" id="adminDashModal">
     <div class="modal" style="max-width:98vw;">
-      <button class="modal-close" onclick="closeDash()">×</button>
-      <h2>⚙ Admin Dashboard</h2>
-      <p class="modal-sub">Full control — courses, upcoming, settings, and links</p>
+      <div class="admin-header-bar">
+        <div>
+          <h2>⚙️ Admin Dashboard</h2>
+          <p>Full control over your course platform</p>
+        </div>
+        <div class="admin-header-right">
+          <button onclick="closeDash()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem;display:grid;place-items:center;">×</button>
+        </div>
+      </div>
 
       <div class="admin-tabs">
         <button class="admin-tab active" onclick="switchAdminTab('add')">➕ Add</button>
@@ -1363,6 +1615,7 @@
         <button class="admin-tab" onclick="switchAdminTab('requests')">📩 Requests</button>
         <button class="admin-tab" onclick="switchAdminTab('log')">🕐 Log</button>
         <button class="admin-tab" onclick="switchAdminTab('account')">👤 Account</button>
+        <button class="admin-tab" onclick="switchAdminTab('themes')">🎨 Themes</button>
       </div>
 
       <!-- ADD / EDIT COURSE TAB -->
@@ -1373,13 +1626,24 @@
           <label>Thumbnail Image</label>
           <div class="image-upload-tabs">
             <button class="img-tab active" onclick="switchImgTab('url','c')">🔗 URL</button>
-            <button class="img-tab" onclick="switchImgTab('file','c')">📁 Upload File</button>
+            <button class="img-tab" onclick="switchImgTab('file','c')">📁 Upload</button>
+            <button class="img-tab" onclick="switchImgTab('paste','c')">📋 Paste Image</button>
           </div>
           <div class="img-panel active" id="cImgUrlPanel">
-            <input type="text" id="cImage" placeholder="https://..." oninput="previewImage('cImage','imagePreview')"/>
+            <input type="text" id="cImage" placeholder="Paste image URL here…" oninput="previewImage('cImage','imagePreview')" onpaste="setTimeout(()=>previewImage('cImage','imagePreview'),50)"/>
+            <p style="font-size:.72rem;color:var(--muted);margin-top:5px;">💡 Right-click image → Copy image address → paste here</p>
           </div>
           <div class="img-panel" id="cImgFilePanel">
             <input type="file" id="cImageFile" accept="image/*" onchange="previewFile('cImageFile','imagePreview')"/>
+          </div>
+          <div class="img-panel" id="cImgPastePanel">
+            <div id="cPasteZone" onclick="this.focus()" onpaste="handleImagePaste(event,'imagePreview','cImage')" tabindex="0"
+              style="border:2px dashed var(--accent);border-radius:10px;padding:28px;text-align:center;cursor:pointer;outline:none;transition:background .2s;min-height:90px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--input-bg);"
+              onfocus="this.style.background='var(--accent-glow)'" onblur="this.style.background='var(--input-bg)'">
+              <div style="font-size:2rem;">📋</div>
+              <div style="font-size:.85rem;color:var(--text);font-weight:600;">Click here, then press Ctrl+V</div>
+              <div style="font-size:.75rem;color:var(--muted);">Copy any image (right-click → Copy Image) then paste here</div>
+            </div>
           </div>
           <img id="imagePreview" alt="Preview"/>
         </div>
@@ -1392,16 +1656,24 @@
         </div>
         <div class="form-group">
           <label>Category</label>
-          <select id="cCat">
-            <option value="Development">Development</option>
-            <option value="AI / ML">AI / ML</option>
-            <option value="Design">Design</option>
-            <option value="Data Science">Data Science</option>
-            <option value="DSA">DSA</option>
-            <option value="Marketing">Marketing</option>
-            <option value="Business">Business</option>
-            <option value="Other">Other</option>
-          </select>
+          <div style="display:flex;gap:8px;">
+            <select id="cCat" style="flex:1;" onchange="toggleCustomCat('cCat','cCustomCat',this.value)">
+              <option value="Development">💻 Development</option>
+              <option value="AI / ML">🤖 AI / ML</option>
+              <option value="Design">🎨 Design</option>
+              <option value="Data Science">📊 Data Science</option>
+              <option value="DSA">🧩 DSA</option>
+              <option value="Marketing">📣 Marketing</option>
+              <option value="Business">💼 Business</option>
+              <option value="Video Editing">🎬 Video Editing</option>
+              <option value="Photography">📷 Photography</option>
+              <option value="Music">🎵 Music</option>
+              <option value="Finance">💰 Finance</option>
+              <option value="Language">🌐 Language</option>
+              <option value="custom">➕ Add New Category…</option>
+            </select>
+          </div>
+          <input type="text" id="cCustomCat" placeholder="Type new category name…" style="display:none;margin-top:8px;width:100%;background:var(--input-bg);border:1px solid var(--accent);color:var(--text);padding:11px 14px;border-radius:9px;font-family:Inter,sans-serif;font-size:.9rem;outline:none;"/>
         </div>
         <div class="form-group"><label>Institution / Creator</label><input type="text" id="cCreator" placeholder="e.g. Udemy, freeCodeCamp"/></div>
         <button class="submit-btn" onclick="publishCourse()">🚀 Publish Course</button>
@@ -1425,16 +1697,22 @@
           </div>
           <div class="form-group">
             <label>Category</label>
-            <select id="eCCat">
-              <option value="Development">Development</option>
-              <option value="AI / ML">AI / ML</option>
-              <option value="Design">Design</option>
-              <option value="Data Science">Data Science</option>
-              <option value="DSA">DSA</option>
-              <option value="Marketing">Marketing</option>
-              <option value="Business">Business</option>
-              <option value="Other">Other</option>
+            <select id="eCCat" onchange="toggleCustomCat('eCCat','eCCustomCat',this.value)">
+              <option value="Development">💻 Development</option>
+              <option value="AI / ML">🤖 AI / ML</option>
+              <option value="Design">🎨 Design</option>
+              <option value="Data Science">📊 Data Science</option>
+              <option value="DSA">🧩 DSA</option>
+              <option value="Marketing">📣 Marketing</option>
+              <option value="Business">💼 Business</option>
+              <option value="Video Editing">🎬 Video Editing</option>
+              <option value="Photography">📷 Photography</option>
+              <option value="Music">🎵 Music</option>
+              <option value="Finance">💰 Finance</option>
+              <option value="Language">🌐 Language</option>
+              <option value="custom">➕ Add New Category…</option>
             </select>
+            <input type="text" id="eCCustomCat" placeholder="Type new category name…" style="display:none;margin-top:8px;width:100%;background:var(--input-bg);border:1px solid var(--accent);color:var(--text);padding:11px 14px;border-radius:9px;font-family:Inter,sans-serif;font-size:.9rem;outline:none;"/>
           </div>
           <div class="form-group"><label>Institution / Creator</label><input type="text" id="eCCreator" placeholder="e.g. Apna College"/></div>
           <div style="display:flex;gap:10px;">
@@ -1446,8 +1724,11 @@
 
       <!-- MANAGE COURSES TAB -->
       <div class="tab-panel" id="tabManage">
-        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:18px;">All Courses (Edit / Delete)</h3>
-        <div class="manage-list" id="manageList">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+          <div class="tab-section-title" style="margin-bottom:0;border:none;padding:0;">📋 All Courses</div>
+          <span id="manageCount" style="font-size:.78rem;color:var(--muted);background:var(--bg2);padding:4px 12px;border-radius:999px;border:1px solid var(--border);"></span>
+        </div>
+        <div class="manage-card-list" id="manageList">
           <p style="color:var(--muted);font-size:.85rem;">Loading…</p>
         </div>
       </div>
@@ -1597,6 +1878,65 @@
         </div>
       </div>
 
+      <!-- THEMES TAB -->
+      <div class="tab-panel" id="tabThemes">
+        <div class="tab-section-title">🎨 Theme Settings</div>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:20px;">Choose a colour theme for the site. Visitors can also change it themselves using the 🎨 button on the site.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+          <div class="theme-card" onclick="setTheme('dark')" data-t="dark">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#0a0a0f,#7c5cfc);"></div>
+            <div class="theme-card-name">🌙 Dark Purple</div>
+            <div class="theme-card-desc">Default dark theme with purple accents</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('light')" data-t="light">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#f5f0e8,#c8860a);"></div>
+            <div class="theme-card-name">☀️ Light Warm</div>
+            <div class="theme-card-desc">Clean light theme with golden accents</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('midnight')" data-t="midnight">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#050d1a,#3b82f6);"></div>
+            <div class="theme-card-name">🌊 Midnight Blue</div>
+            <div class="theme-card-desc">Deep ocean blue dark theme</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('forest')" data-t="forest">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#050f08,#16a34a);"></div>
+            <div class="theme-card-name">🌲 Forest Green</div>
+            <div class="theme-card-desc">Earthy dark theme with green accents</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('sunset')" data-t="sunset">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#0f0800,#ea580c);"></div>
+            <div class="theme-card-name">🌅 Sunset Orange</div>
+            <div class="theme-card-desc">Warm dark theme with orange fire</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('rose')" data-t="rose">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#0f0508,#e11d48);"></div>
+            <div class="theme-card-name">🌸 Rose Pink</div>
+            <div class="theme-card-desc">Deep dark theme with rose red accents</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('cyberpunk')" data-t="cyberpunk">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#0a0800,#eab308);"></div>
+            <div class="theme-card-name">⚡ Cyberpunk</div>
+            <div class="theme-card-desc">Dark with electric yellow neon glow</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('arctic')" data-t="arctic">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#e2e8f0,#0ea5e9);"></div>
+            <div class="theme-card-name">🧊 Arctic</div>
+            <div class="theme-card-desc">Clean light theme with ice blue accents</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('lavender')" data-t="lavender">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#0d0a1a,#8b5cf6);"></div>
+            <div class="theme-card-name">💜 Lavender Dream</div>
+            <div class="theme-card-desc">Soft dark theme with violet hues</div>
+          </div>
+          <div class="theme-card" onclick="setTheme('coffee')" data-t="coffee">
+            <div class="theme-card-preview" style="background:linear-gradient(135deg,#120a04,#d97706);"></div>
+            <div class="theme-card-name">☕ Coffee</div>
+            <div class="theme-card-desc">Warm brown dark theme, easy on eyes</div>
+          </div>
+        </div>
+        <p style="font-size:.75rem;color:var(--muted);margin-top:16px;">✨ Theme is saved in the visitor's browser automatically.</p>
+      </div>
+
       <!-- ACCOUNT TAB -->
       <div class="tab-panel" id="tabAccount">
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin-bottom:16px;">👤 Admin Account</h3>
@@ -1613,35 +1953,112 @@
     </div>
   </div>
 
+  <!-- ══ CONFIRM EXIT MODAL ══ -->
+  <div class="modal-overlay" id="confirmExitModal" style="z-index:500;">
+    <div class="modal" style="max-width:400px;text-align:center;">
+      <div style="font-size:3rem;margin-bottom:12px;">⚠️</div>
+      <h2 style="margin-bottom:8px;">Leave Admin Panel?</h2>
+      <p style="color:var(--muted);font-size:.9rem;margin-bottom:24px;">Any unsaved changes will be lost. Are you sure you want to close the admin dashboard?</p>
+      <div style="display:flex;gap:12px;">
+        <button onclick="cancelExit()" style="flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:10px;cursor:pointer;font-size:.9rem;font-weight:600;font-family:Inter,sans-serif;">← Stay</button>
+        <button onclick="confirmExit()" style="flex:1;background:#ef4444;border:none;color:#fff;padding:12px;border-radius:10px;cursor:pointer;font-size:.9rem;font-weight:600;font-family:Inter,sans-serif;">Yes, Leave</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CONFIRM EXIT ADMIN ══ -->
+  <div class="modal-overlay" id="confirmExitModal" style="z-index:500;">
+    <div class="modal" style="max-width:380px;text-align:center;">
+      <div style="font-size:2.5rem;margin-bottom:12px;">⚠️</div>
+      <h2 style="margin-bottom:8px;">Leave Admin Panel?</h2>
+      <p style="color:var(--muted);font-size:.9rem;margin-bottom:24px;">Any unsaved changes will be lost. Are you sure you want to exit?</p>
+      <div style="display:flex;gap:10px;">
+        <button onclick="cancelExit()" style="flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:10px;cursor:pointer;font-size:.9rem;font-weight:600;font-family:Inter,sans-serif;">Stay</button>
+        <button onclick="confirmExit()" style="flex:1;background:#ef4444;border:none;color:#fff;padding:12px;border-radius:10px;cursor:pointer;font-size:.9rem;font-weight:600;font-family:Inter,sans-serif;">Yes, Exit</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
     // ── THEME ──
-    function toggleTheme() {
-      const html = document.documentElement;
-      const isDark = html.dataset.theme === 'dark';
-      html.dataset.theme = isDark ? 'light' : 'dark';
-      document.getElementById('themeBtn').textContent = isDark ? '☀️' : '🌙';
-      localStorage.setItem('acc-theme', html.dataset.theme);
+    const THEMES = {
+      dark:      { emoji:'🌙', label:'Dark Purple' },
+      light:     { emoji:'☀️',  label:'Light Warm' },
+      midnight:  { emoji:'🌊', label:'Midnight Blue' },
+      forest:    { emoji:'🌲', label:'Forest Green' },
+      sunset:    { emoji:'🌅', label:'Sunset Orange' },
+      rose:      { emoji:'🌸', label:'Rose Pink' },
+      cyberpunk: { emoji:'⚡', label:'Cyberpunk' },
+      arctic:    { emoji:'🧊', label:'Arctic' },
+      lavender:  { emoji:'💜', label:'Lavender' },
+      coffee:    { emoji:'☕', label:'Coffee' },
+    };
+    function setTheme(t) {
+      document.documentElement.dataset.theme = t;
+      localStorage.setItem('acc-theme', t);
+      const btn = document.getElementById('themeBtn');
+      if (btn) btn.textContent = THEMES[t]?.emoji || '🎨';
+      // Update FAB panel active states
+      document.querySelectorAll('.theme-option[data-t]').forEach(el => el.classList.toggle('active', el.dataset.t === t));
+      document.querySelectorAll('.theme-card[data-t]').forEach(el => el.classList.toggle('active-theme', el.dataset.t === t));
     }
-    (function() {
-      const saved = localStorage.getItem('acc-theme');
-      if (saved) {
-        document.documentElement.dataset.theme = saved;
-        document.getElementById('themeBtn').textContent = saved === 'light' ? '☀️' : '🌙';
+    function toggleTheme() {
+      const cur = document.documentElement.dataset.theme || 'dark';
+      const keys = Object.keys(THEMES);
+      const next = keys[(keys.indexOf(cur) + 1) % keys.length];
+      setTheme(next);
+    }
+    function toggleThemePanel() {
+      document.getElementById('themePanel').classList.toggle('open');
+    }
+    // Close theme panel on outside click
+    document.addEventListener('click', e => {
+      const panel = document.getElementById('themePanel');
+      if (panel && !panel.contains(e.target) && !e.target.classList.contains('theme-fab')) {
+        panel.classList.remove('open');
       }
+    });
+    (function() {
+      const saved = localStorage.getItem('acc-theme') || 'dark';
+      setTheme(saved);
     })();
+
+    // ── CATEGORY CUSTOM ──
+    window.toggleCustomCat = function(selectId, inputId, val) {
+      const inp = document.getElementById(inputId);
+      if (val === 'custom') { inp.style.display = 'block'; inp.focus(); }
+      else { inp.style.display = 'none'; }
+    };
+    window.getCategory = function(selectId, inputId) {
+      const sel = document.getElementById(selectId);
+      if (sel.value === 'custom') {
+        const custom = document.getElementById(inputId).value.trim();
+        return custom || 'Other';
+      }
+      return sel.value;
+    };
 
     // ── ADMIN ──
     function openAdmin()  { document.getElementById('adminLoginModal').classList.add('show') }
     function closeAdmin() { document.getElementById('adminLoginModal').classList.remove('show') }
-    function closeDash()  { document.getElementById('adminDashModal').classList.remove('show') }
+    function closeDash()  {
+      document.getElementById('confirmExitModal').classList.add('show');
+    }
+    function confirmExit() {
+      document.getElementById('confirmExitModal').classList.remove('show');
+      document.getElementById('adminDashModal').classList.remove('show');
+    }
+    function cancelExit() {
+      document.getElementById('confirmExitModal').classList.remove('show');
+    }
 
     function switchAdminTab(tab) {
       const map = {
         add:'tabAdd', edit:'tabEdit', manage:'tabManage', upcoming:'tabUpcoming',
         settings:'tabSettings', announce:'tabAnnounce',
-        bulk:'tabBulk', requests:'tabRequests', log:'tabLog', account:'tabAccount'
+        bulk:'tabBulk', requests:'tabRequests', log:'tabLog', account:'tabAccount', themes:'tabThemes'
       };
       const keys = Object.keys(map);
       document.querySelectorAll('.admin-tab').forEach((t, i) => {
@@ -1657,15 +2074,48 @@
     }
     window.switchTab = switchAdminTab;
 
+    // ── IMAGE PASTE HANDLER ──
+    window.handleImagePaste = async function(event, previewId, urlInputId) {
+      const items = (event.clipboardData || event.originalEvent?.clipboardData)?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          event.preventDefault();
+          const file = item.getAsFile();
+          const zone = event.currentTarget;
+          zone.innerHTML = '<div style="font-size:1.5rem;">⏳</div><div style="font-size:.82rem;color:var(--muted);">Uploading…</div>';
+          try {
+            const storRef = ref(stor, 'thumbnails/' + Date.now() + '_paste.' + item.type.split('/')[1]);
+            const snap = await uploadBytes(storRef, file);
+            const url = await getDownloadURL(snap.ref);
+            // put URL in the url input and show preview
+            const urlInput = document.getElementById(urlInputId);
+            if (urlInput) urlInput.value = url;
+            const preview = document.getElementById(previewId);
+            if (preview) { preview.src = url; preview.style.display = 'block'; }
+            zone.innerHTML = '<div style="font-size:1.5rem;">✅</div><div style="font-size:.82rem;color:var(--success);font-weight:600;">Image uploaded!</div><div style="font-size:.72rem;color:var(--muted);margin-top:4px;">Switch to URL tab to see the link</div>';
+            showToast('Image pasted & uploaded ✓');
+          } catch(e) {
+            zone.innerHTML = '<div style="font-size:1.5rem;">❌</div><div style="font-size:.82rem;color:#ef4444;">' + e.message + '</div>';
+          }
+          return;
+        }
+      }
+      showToast('No image found in clipboard. Try right-click → Copy Image first.', true);
+    };
+
     // ── IMAGE TABS ──
     function switchImgTab(type, prefix) {
-      const urlPanel  = document.getElementById(prefix + 'ImgUrlPanel');
-      const filePanel = document.getElementById(prefix + 'ImgFilePanel');
+      const urlPanel   = document.getElementById(prefix + 'ImgUrlPanel');
+      const filePanel  = document.getElementById(prefix + 'ImgFilePanel');
+      const pastePanel = document.getElementById(prefix + 'ImgPastePanel');
       const tabs = urlPanel.parentElement.previousElementSibling.querySelectorAll('.img-tab');
       tabs[0].classList.toggle('active', type === 'url');
       tabs[1].classList.toggle('active', type === 'file');
+      if (tabs[2]) tabs[2].classList.toggle('active', type === 'paste');
       urlPanel.classList.toggle('active', type === 'url');
       filePanel.classList.toggle('active', type === 'file');
+      if (pastePanel) { pastePanel.classList.toggle('active', type === 'paste'); if(type==='paste') pastePanel.querySelector('[tabindex]')?.focus(); }
     }
 
     function previewImage(inputId, previewId) {
@@ -1716,9 +2166,9 @@
       }
     }
 
-    // ── POPUP ──
+    // ── POPUP (disabled - removed from auto-show) ──
     function closeTgPopup() { document.getElementById('tgOverlay').classList.remove('show') }
-    setTimeout(() => { document.getElementById('tgOverlay').classList.add('show') }, 4000);
+    // Popup auto-show removed by user request
 
     // ── SCROLL REVEAL ──
     const observer = new IntersectionObserver(entries => {
